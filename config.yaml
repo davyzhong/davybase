@@ -1,0 +1,22 @@
+# Davybase 配置文件
+# 敏感信息（API 密钥）存放在 ~/.openclaw/openclaw.json 和环境变量中
+
+vault_path: /Users/qiming/ObsidianWiki
+data_path: ./data
+logs_path: ./logs
+
+compiler:
+  default_provider: zhipu
+  batch_size: 15      # 单批次最大笔记数
+  max_retries: 2      # LLM 调用最大重试次数
+  providers:
+    zhipu:
+      model: glm-5
+      name: 智谱 GLM5
+    minimax:
+      model: codex-MiniMax-M2.7
+      name: MiniMax M2.7
+
+sync:
+  schedule: "0 6 * * *"   # 每天早上 6 点
+  rate_limit_delay: 1.0   # API 请求间隔（秒）

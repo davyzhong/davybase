@@ -1,0 +1,25 @@
+# 运行时
+data/raw/
+data/_failed/
+data/sync.db
+data/sync.db-journal
+data/.sync.lock
+logs/
+__pycache__/
+*.pyc
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Obsidian Wiki 输出（如果在项目内创建）
+wiki/
+*.md.backup
+
+# 密钥和配置
+*.key
+*.pem
+secrets.json

@@ -1,0 +1,67 @@
+{
+  "knowledge_list": {
+    "data": {
+      "topics": [
+        {"topic_id": "kb1", "name": "深度学习", "description": "DL 笔记", "stats": {"note_count": 3}},
+        {"topic_id": "kb2", "name": "产品思考", "description": "产品笔记", "stats": {"note_count": 2}}
+      ],
+      "has_more": false,
+      "total": 2
+    }
+  },
+  "knowledge_notes_kb1": {
+    "data": {
+      "notes": [
+        {"note_id": "1001", "title": "反向传播", "note_type": "plain_text", "created_at": "2026-04-01 10:00:00"},
+        {"note_id": "1002", "title": "梯度下降", "note_type": "plain_text", "created_at": "2026-04-02 11:00:00"},
+        {"note_id": "1003", "title": "Transformer", "note_type": "link", "created_at": "2026-04-03 12:00:00"}
+      ],
+      "has_more": false
+    }
+  },
+  "knowledge_notes_kb2": {
+    "data": {
+      "notes": [],
+      "has_more": false
+    }
+  },
+  "note_detail_1001": {
+    "data": {
+      "note": {
+        "note_id": "1001",
+        "title": "反向传播",
+        "content": "# 反向传播算法\n\n核心是链式法则。",
+        "note_type": "plain_text",
+        "tags": ["深度学习"],
+        "created_at": "2026-04-01 10:00:00",
+        "attachments": []
+      }
+    }
+  },
+  "note_detail_1002": {
+    "data": {
+      "note": {
+        "note_id": "1002",
+        "title": "梯度下降",
+        "content": "# 梯度下降\n\n优化算法。",
+        "note_type": "plain_text",
+        "tags": ["深度学习"],
+        "created_at": "2026-04-02 11:00:00",
+        "attachments": []
+      }
+    }
+  },
+  "note_detail_1003": {
+    "data": {
+      "note": {
+        "note_id": "1003",
+        "title": "Transformer",
+        "content": "# Transformer\n\nAttention 机制。",
+        "note_type": "link",
+        "tags": ["深度学习"],
+        "created_at": "2026-04-03 12:00:00",
+        "attachments": []
+      }
+    }
+  }
+}
