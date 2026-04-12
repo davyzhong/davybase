@@ -59,25 +59,28 @@ python main.py status
 
 ## 配置
 
-详细配置说明请参阅 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
+详细配置说明请参阅 [docs/CONFIGURATION.md](docs/CONFIGURATION.md) 和 [docs/SECRETS_SETUP.md](docs/SECRETS_SETUP.md)。
 
-### 1. get 笔记 API 凭据
+### 1. 配置 API 密钥
 
-运行 `/note config` 配置 get 笔记，会自动设置以下环境变量：
-- `GETNOTE_API_KEY` — API Key（`gk_live_xxx`）
-- `GETNOTE_CLIENT_ID` — Client ID（`cli_xxx`）
-
-### 2. LLM API 密钥
+**方式 1（推荐）：** 复制 `secrets.example.yaml` 为 `secrets.yaml` 并填入密钥
 
 ```bash
-# 智谱 GLM5
-export ZHIPU_API_KEY=your_zhipu_api_key
+cp secrets.example.yaml secrets.yaml
+# 编辑 secrets.yaml，填入你的 API 密钥
+chmod 600 secrets.yaml
+```
 
-# MiniMax M2.7
+**方式 2：** 使用环境变量
+
+```bash
+export GETNOTE_API_KEY=gk_live_xxx
+export GETNOTE_CLIENT_ID=cli_xxx
+export ZHIPU_API_KEY=your_zhipu_api_key
 export MINIMAX_API_KEY=your_minimax_api_key
 ```
 
-### 3. 配置文件
+### 2. 配置 Obsidian Vault 路径
 
 编辑 `config.yaml`：
 
@@ -85,10 +88,6 @@ export MINIMAX_API_KEY=your_minimax_api_key
 vault_path: /Users/qiming/ObsidianWiki  # 你的 Obsidian vault 路径
 data_path: ./data
 logs_path: ./logs
-
-compiler:
-  default_provider: zhipu
-  batch_size: 15
 ```
 
 ## Wiki 条目格式
@@ -132,7 +131,8 @@ type: wiki
 
 ## 文档
 
-- **[CONFIGURATION.md](docs/CONFIGURATION.md)** - 配置指南（环境变量、config.yaml、CLI 参数）
+- **[SECRETS_SETUP.md](docs/SECRETS_SETUP.md)** - 密钥配置指南（API 密钥获取和配置方法）
+- **[CONFIGURATION.md](docs/CONFIGURATION.md)** - 完整配置指南（config.yaml、CLI 参数）
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - 系统架构（四阶段管线、模块设计、数据库结构）
 - **[USAGE.md](docs/USAGE.md)** - 使用指南（快速开始、常见工作流、故障排查）
 
@@ -176,7 +176,7 @@ davybase/
 
 ## 安全
 
-- 所有 API 密钥来自环境变量，永不写入源代码或配置文件
+- API 密钥配置在 `secrets.yaml` 文件中（已加入 `.gitignore`），或存储在环境变量中
 - `.gitignore` 已配置排除敏感文件和数据
 - 原始笔记数据不污染 Obsidian vault，只有编译后的 wiki 条目写入
 

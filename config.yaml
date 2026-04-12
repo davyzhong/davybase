@@ -1,9 +1,13 @@
 # Davybase 配置文件
-# 敏感信息（API 密钥）存放在 ~/.openclaw/openclaw.json 和环境变量中
+#
+# 敏感信息（API 密钥）配置：
+# 方式 1（推荐）：复制 secrets.example.yaml 为 secrets.yaml 并填入密钥
+# 方式 2：设置环境变量（GETNOTE_API_KEY, ZHIPU_API_KEY 等）
+# 详见：docs/SECRETS_SETUP.md
 
 vault_path: /Users/qiming/ObsidianWiki
-data_path: ./data
-logs_path: ./logs
+data_path: /Users/qiming/ObsidianWiki/raw
+logs_path: /Users/qiming/ObsidianWiki/logs
 
 compiler:
   default_provider: zhipu

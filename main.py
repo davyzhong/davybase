@@ -42,8 +42,7 @@ def extract_only():
     config = Config()
     logger = setup_logging(f"{config.logs_path}/sync.log")
 
-    api_key, client_id = config.get_getnote_credentials()
-    extractor = Extractor(api_key, client_id, config.data_path)
+    extractor = Extractor(config, config.data_path)
     asyncio.run(extractor.run())
 
 
@@ -56,14 +55,13 @@ def compile_only(provider: str, no_cli: bool):
     logger = setup_logging(f"{config.logs_path}/sync.log")
 
     provider = provider or config.default_provider
-    api_key = config.get_llm_api_key(provider)
 
     if provider == "zhipu":
-        llm_provider = ZhipuProvider(api_key)
+        llm_provider = ZhipuProvider(config.get_llm_api_key("zhipu"))
     else:
-        llm_provider = MiniMaxProvider(api_key)
+        llm_provider = MiniMaxProvider(config.get_llm_api_key("minimax"))
 
-    compiler = Compiler(llm_provider, config.data_path, config.vault_path, use_cli=not no_cli)
+    compiler = Compiler(config, llm_provider, config.data_path, config.vault_path, use_cli=not no_cli)
     asyncio.run(compiler.run(provider))
 
 
@@ -110,25 +108,26 @@ async def run_sync(run_type: str, provider: str, use_cli: bool = True):
             logger.error("另一个同步进程正在运行")
             return
 
-        api_key, client_id = config.get_getnote_credentials()
         provider = provider or config.default_provider
-        llm_api_key = config.get_llm_api_key(provider)
 
         state = SyncState(f"{config.data_path}/sync.db")
         run_id = state.record_sync_run(run_type, provider)
 
         try:
-            extractor = Extractor(api_key, client_id, config.data_path)
+            # 抽取
+            extractor = Extractor(config, config.data_path)
             await extractor.run()
 
+            # 转换
             converter = Converter(config.data_path)
 
+            # 编译
             if provider == "zhipu":
-                llm_provider = ZhipuProvider(llm_api_key)
+                llm_provider = ZhipuProvider(config.get_llm_api_key("zhipu"))
             else:
-                llm_provider = MiniMaxProvider(llm_api_key)
+                llm_provider = MiniMaxProvider(config.get_llm_api_key("minimax"))
 
-            compiler = Compiler(llm_provider, config.data_path, config.vault_path, use_cli=use_cli)
+            compiler = Compiler(config, llm_provider, config.data_path, config.vault_path, use_cli=use_cli)
             await compiler.run(provider)
 
             state.complete_sync_run(run_id, 0, 0, 0)

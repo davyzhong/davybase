@@ -1,23 +1,22 @@
 # Davybase 配置指南
 
-本文档说明 Davybase 的所有配置项和配置方法。
+本文档说明 Davybase 的配置方法。
 
-## 配置概览
+## 配置分层
 
-Davybase 的配置分为三层：
+Davybase 的配置分为两层：
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  环境变量（敏感凭据）                                     │
-│  - GETNOTE_API_KEY                                      │
-│  - GETNOTE_CLIENT_ID                                    │
-│  - ZHIPU_API_KEY / MINIMAX_API_KEY                      │
+│  密钥配置（API 密钥等敏感凭据）                           │
+│  - 方式 1：secrets.yaml 文件（推荐）                     │
+│  - 方式 2：环境变量（优先级更高）                        │
+│  详见：docs/SECRETS_SETUP.md                            │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
 │  config.yaml（应用配置）                                  │
-│  - vault_path                                           │
-│  - data_path                                            │
+│  - vault_path, data_path, logs_path                     │
 │  - compiler 配置                                         │
 │  - sync 配置                                             │
 └─────────────────────────────────────────────────────────┘
@@ -32,59 +31,38 @@ Davybase 的配置分为三层：
 
 ---
 
-## 1. 环境变量（敏感凭据）
+## 1. 密钥配置（API 密钥）
 
-所有 API 密钥等敏感信息通过环境变量配置，**永不写入源代码或配置文件**。
+**重要：** API 密钥等敏感信息请配置 `secrets.yaml` 文件或使用环境变量。
 
-### 1.1 get 笔记 API 凭据
+**详见 [docs/SECRETS_SETUP.md](SECRETS_SETUP.md)** - 包含详细的密钥获取和配置步骤。
 
-| 变量名 | 说明 | 格式示例 | 获取方式 |
-|--------|------|----------|----------|
-| `GETNOTE_API_KEY` | get 笔记 API 密钥 | `gk_live_xxx` | 运行 `/note config` |
-| `GETNOTE_CLIENT_ID` | get 笔记 Client ID | `cli_xxx` | 运行 `/note config` |
-
-**配置方法：**
+### 方式一：secrets.yaml 文件（推荐）
 
 ```bash
-# 方法 1：使用 getnote Skill（推荐）
-/note config
+# 复制示例文件
+cp secrets.example.yaml secrets.yaml
 
-# 方法 2：手动设置环境变量
-export GETNOTE_API_KEY=gk_live_xxxxxxxxxxxxx
-export GETNOTE_CLIENT_ID=cli_xxxxxxxxxxxxx
+# 编辑 secrets.yaml，填入你的 API 密钥
+# 设置文件权限
+chmod 600 secrets.yaml
 ```
 
-### 1.2 LLM API 密钥
-
-| 变量名 | 说明 | 格式示例 | 获取方式 |
-|--------|------|----------|----------|
-| `ZHIPU_API_KEY` | 智谱 AI API 密钥 | `xxxxxxxx.xxxxxxxxx` | [智谱 AI 开放平台](https://open.bigmodel.cn/) |
-| `MINIMAX_API_KEY` | MiniMax API 密钥 | `xxxxxxxxxxxxx` | [MiniMax 开放平台](https://platform.minimaxi.com/) |
-
-**配置方法：**
+### 方式二：环境变量（优先级更高）
 
 ```bash
-# 添加到 ~/.zshrc（永久生效）
-echo 'export ZHIPU_API_KEY=your_zhipu_api_key' >> ~/.zshrc
-echo 'export MINIMAX_API_KEY=your_minimax_api_key' >> ~/.zshrc
-source ~/.zshrc
+# get 笔记
+export GETNOTE_API_KEY=gk_live_xxx
+export GETNOTE_CLIENT_ID=cli_xxx
 
-# 或临时设置（当前终端会话）
+# 智谱
 export ZHIPU_API_KEY=your_zhipu_api_key
+
+# MiniMax
 export MINIMAX_API_KEY=your_minimax_api_key
 ```
 
-### 1.3 验证配置
-
-```bash
-# 检查环境变量是否设置
-echo $GETNOTE_API_KEY
-echo $ZHIPU_API_KEY
-echo $MINIMAX_API_KEY
-
-# 运行 Davybase 检查配置
-python main.py status
-```
+**优先级说明：** 如果同时配置了 `secrets.yaml` 和环境变量，环境变量会覆盖 `secrets.yaml` 中的值。
 
 ---
 
@@ -96,7 +74,10 @@ python main.py status
 
 ```yaml
 # Davybase 配置文件
-# 敏感信息（API 密钥）存放在环境变量中
+# 敏感信息（API 密钥）配置：
+# 方式 1（推荐）：复制 secrets.example.yaml 为 secrets.yaml 并填入密钥
+# 方式 2：设置环境变量（GETNOTE_API_KEY, ZHIPU_API_KEY 等）
+# 详见：docs/SECRETS_SETUP.md
 
 # ============= 路径配置 =============
 vault_path: /Users/qiming/ObsidianWiki    # Obsidian Vault 路径
@@ -200,23 +181,17 @@ python main.py quota
 
 ### 4.2 常见问题
 
-#### 问题 1：找不到配置文件
+#### 问题 1：找不到密钥配置
 
 ```
-错误：config.yaml not found
+错误：未配置 API 密钥
 ```
 
-**解决：** 确保在项目根目录运行，或复制 `config.example.yaml` 为 `config.yaml`
+**解决：** 
+- 复制 `secrets.example.yaml` 为 `secrets.yaml` 并填入密钥
+- 或设置相应的环境变量
 
-#### 问题 2：API 密钥未设置
-
-```
-错误：GETNOTE_API_KEY not set
-```
-
-**解决：** 运行 `/note config` 或手动设置环境变量
-
-#### 问题 3：Obsidian Vault 路径不存在
+#### 问题 2：Obsidian Vault 路径不存在
 
 ```
 错误：vault_path does not exist: /path/to/vault
@@ -231,12 +206,13 @@ python main.py quota
 | 版本 | 日期 | 变更说明 |
 |------|------|----------|
 | 1.0 | 2026-04-11 | 初始版本 |
-| 1.1 | 2026-04-12 | 新增 note-summarizer Skill 配置 |
+| 2.0 | 2026-04-12 | 引入 secrets.yaml 集中管理密钥 |
 
 ---
 
 ## 6. 相关文档
 
 - [README.md](../README.md) - 项目概述和快速开始
+- [SECRETS_SETUP.md](SECRETS_SETUP.md) - 密钥配置详细指南
 - [USAGE.md](USAGE.md) - 详细使用指南
 - [ARCHITECTURE.md](ARCHITECTURE.md) - 系统架构说明
