@@ -1,10 +1,38 @@
 # Davybase
 
-> get 笔记 → Markdown → LLM 编译 → Obsidian Wiki 的知识库管线
+> AI Native 知识生产线 - get 笔记 → Markdown → LLM 编译 → Obsidian Wiki
 
 受 [Karpathy 的个人知识库 wiki 方案](https://karpathy.ai/llmcookbook/) 启发，Davybase 帮助你将被困在 get 笔记 APP 中的知识自动化导出，编译为带双向链接的结构化 wiki，最终发布到 Obsidian。
 
+**v3.0 新特性**: AI Native 架构，支持自然语言交互和定时自动执行！
+
 ## 快速开始
+
+### 方式 1: AI Native (推荐 - v3.0)
+
+```bash
+# 1. 安装 MCP SDK
+pip install --system mcp
+
+# 2. 配置 MCP 服务器
+# 编辑 ~/.claude/settings.json 添加:
+{
+  "mcpServers": {
+    "davybase": {
+      "command": "python",
+      "args": ["/Users/qiming/workspace/davybase/src/mcp_server.py"]
+    }
+  }
+}
+
+# 3. 使用自然语言交互
+/davybase status    # 查看管线状态
+/davybase ingest    # 摄取笔记
+/davybase digest    # 消化处理
+/davybase compile   # 编译 Wiki
+```
+
+### 方式 2: 传统 CLI
 
 ```bash
 # 安装依赖
@@ -25,13 +53,16 @@ python main.py status
 
 ## 功能特性
 
-- **四阶段管线**：Extractor → Converter → Compiler → Writer，各司其职
-- **多 LLM 支持**：智谱 GLM5、MiniMax M2.7，可按需切换
-- **智能编译**：LLM 识别核心概念，聚合多条笔记为结构化 wiki 条目
-- **双链支持**：自动生成 `[[双向链接]]` 和 frontmatter 标签
-- **冲突处理**：保留手动编辑内容，仅更新自动生成的摘要块
-- **增量同步**：SQLite 跟踪同步状态，仅处理新增/变更的笔记
-- **速率限制**：自动处理 API 限流，指数退避重试
+- **AI Native 架构** (v3.0): 支持自然语言交互，无需记忆命令
+- **MCP 协议**: 标准 Model Context Protocol，可与其他 AI 工具集成
+- **Claude Skills**: 预定义技能，一键执行复杂任务
+- **定时自动执行**: Claude Cron 调度，每日自动更新知识库
+- **四阶段管线**: 摄取 → 消化 → 编译 → 发布，各司其职
+- **多 LLM 支持**: 智谱 GLM5、MiniMax M2.7，可按需切换
+- **智能编译**: LLM 识别核心概念，聚合多条笔记为结构化 wiki 条目
+- **双链支持**: 自动生成 `[[双向链接]]` 和 frontmatter 标签
+- **幂等安全**: 所有操作可重复执行，自动跳过已处理项
+- **断点续传**: 支持从中断处恢复，不浪费 API 配额
 
 ## 架构图
 
