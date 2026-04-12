@@ -84,6 +84,9 @@ class GetNoteClient:
         next_cursor = 0
 
         while True:
+            # 降低限流风险：增加请求间隔
+            await asyncio.sleep(2.0)
+
             result = await self._get("/open/api/v1/resource/note/list", {"since_id": next_cursor})
             notes = result.get("data", {}).get("notes", [])
             all_notes.extend(notes)
@@ -94,7 +97,6 @@ class GetNoteClient:
 
             next_cursor = result.get("data", {}).get("next_cursor", 0)
             logger.info(f"已获取 {len(all_notes)} 条笔记...")
-            await asyncio.sleep(1.0)
 
         logger.info(f"共获取 {len(all_notes)} 条笔记")
         return all_notes
