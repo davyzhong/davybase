@@ -5,9 +5,16 @@
 # 方式 2：设置环境变量（GETNOTE_API_KEY, ZHIPU_API_KEY 等）
 # 详见：docs/SECRETS_SETUP.md
 
+# Davybase 配置文件
+# 完整配置说明：docs/CONFIGURATION.md
+
 vault_path: /Users/qiming/ObsidianWiki
-data_path: /Users/qiming/ObsidianWiki/raw
+data_path: /Users/qiming/ObsidianWiki/processed    # 处理后的干净 Markdown
+raw_path: /Users/qiming/ObsidianWiki/raw           # 原始文件库（只读）
 logs_path: /Users/qiming/ObsidianWiki/logs
+
+# 状态追踪目录
+state_path: /Users/qiming/ObsidianWiki/.davybase
 
 compiler:
   default_provider: zhipu

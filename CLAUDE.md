@@ -2,6 +2,49 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ 重要：项目原则文件
+
+**每次执行操作前必须阅读**：在编写代码、修改功能或执行任何批量操作之前，必须先阅读项目原则文件：
+
+```bash
+# 必读文件
+cat rules/principles.md
+cat rules/knowledge-base-structure.md
+```
+
+**核心原则**：
+1. **幂等性原则** - 所有操作前必须检查是否已执行过，避免重复处理
+2. **知识库结构约束** - 目录层级最多两级，一级目录 ≤ 20 个，二级目录 ≤ 10 个
+3. **状态追踪** - 批量操作必须有状态记录和断点续传支持
+
+详见 [`rules/principles.md`](rules/principles.md) 和 [`rules/knowledge-base-structure.md`](rules/knowledge-base-structure.md)。
+
+---
+
+## 项目初始化 / Code Review 检查清单
+
+**每次项目初始化或 Code Review 时，必须执行以下步骤：**
+
+1. **阅读原则文件** - 重温项目设计原则
+   - [ ] 已阅读 `rules/principles.md`
+   - [ ] 已阅读 `rules/knowledge-base-structure.md`
+
+2. **检查幂等性** - 代码是否遵守避免重复操作原则
+   - [ ] 操作前有状态检查（如 `is_summarized()`, `is_classified()`）
+   - [ ] 支持断点续传和中断恢复
+   - [ ] 日志中显示"跳过已处理"的提示
+
+3. **检查知识库结构约束** - 目录创建是否符合约束
+   - [ ] 一级目录数量 ≤ 20
+   - [ ] 二级目录数量 ≤ 10
+   - [ ] 目录层级最多两级
+
+4. **检查状态标识** - 处理后是否添加标识
+   - [ ] Frontmatter 中添加 `summarized`, `classified`, `moved_to_kb` 等字段
+   - [ ] 进度文件 `.processing_status.json` 更新
+
+---
+
 ## Project Overview
 
 Davybase - get 笔记到 Obsidian Wiki 的知识库管线
