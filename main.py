@@ -1,6 +1,7 @@
 # main.py
 import asyncio
 import logging
+from pathlib import Path
 
 import click
 
@@ -10,6 +11,7 @@ from src.converter import Converter
 from src.extractor import Extractor
 from src.llm_providers.minimax import MiniMaxProvider
 from src.llm_providers.zhipu import ZhipuProvider
+from src.orchestrator import IngestOrchestrator, DigestOrchestrator, CompileOrchestrator
 from src.sync_state import SyncState
 from src.utils import LockFile, setup_logging
 
@@ -63,6 +65,99 @@ def compile_only(provider: str, no_cli: bool):
 
     compiler = Compiler(config, llm_provider, config.data_path, config.vault_path, use_cli=not no_cli)
     asyncio.run(compiler.run(provider))
+
+
+# =============================================================================
+# 并发管线命令 (v4.0)
+# =============================================================================
+
+@cli.command()
+@click.option("--batch-size", default=20, help="单批次最大抽取数量")
+@click.option("--concurrency", default=3, help="并发请求数")
+@click.option("--resume", is_flag=True, default=True, help="断点续传")
+@click.option("--source", default="getnote", help="数据来源")
+def ingest(batch_size: int, concurrency: int, resume: bool, source: str):
+    """并发抽取笔记（v4.0）"""
+    config = Config()
+    state_dir = Path(config.vault_path) / ".davybase" / "progress"
+    orchestrator = IngestOrchestrator(state_dir, config)
+    result = asyncio.run(orchestrator.run(
+        batch_size=batch_size,
+        concurrency=concurrency,
+        resume=resume,
+        source=source
+    ))
+    click.echo(f"抽取完成：{result['total']} 条，失败 {result['failed']} 条，耗时 {result['duration']}秒")
+
+
+@cli.command()
+@click.option("--inbox-dir", default="raw/notes/_inbox/", help="待处理笔记目录")
+@click.option("--concurrency", default=5, help="并发任务数")
+@click.option("--provider-rotation", default="round_robin", help="LLM 分配策略")
+@click.option("--apply", is_flag=True, help="直接执行移动")
+@click.option("--limit", type=int, default=None, help="限制处理数量")
+def digest(inbox_dir: str, concurrency: int, provider_rotation: str, apply: bool, limit: int):
+    """并发消化笔记（v4.0）"""
+    config = Config()
+    state_dir = Path(config.vault_path) / ".davybase" / "progress"
+    orchestrator = DigestOrchestrator(state_dir, config)
+    result = asyncio.run(orchestrator.run(
+        inbox_dir=inbox_dir,
+        apply=apply,
+        limit=limit,
+        provider_rotation=provider_rotation,
+        concurrency=concurrency
+    ))
+    click.echo(f"消化完成：处理 {result['total_processed']} 条，移动 {result['total_moved']} 条，失败 {result['failed']} 条")
+
+
+@cli.command()
+@click.option("--kb-dir", required=True, help="知识库目录")
+@click.option("--threshold", default=3, help="触发编译的最小笔记数")
+@click.option("--concurrent-batches", default=2, help="同时编译的批次数量")
+@click.option("--provider-rotation", default="round_robin", help="LLM 分配策略")
+def compile(kb_dir: str, threshold: int, concurrent_batches: int, provider_rotation: str):
+    """并发编译 Wiki（v4.0）"""
+    config = Config()
+    state_dir = Path(config.vault_path) / ".davybase" / "progress"
+    orchestrator = CompileOrchestrator(state_dir, config)
+    result = asyncio.run(orchestrator.run(
+        kb_dir=kb_dir,
+        threshold=threshold,
+        concurrent_batches=concurrent_batches,
+        provider_rotation=provider_rotation
+    ))
+    click.echo(f"编译完成：生成 {result['total_wiki_entries']} 个 Wiki 条目，失败 {result['failed']} 条")
+
+
+@cli.command()
+@click.option("--full", is_flag=True, help="执行全量管道")
+@click.option("--resume", is_flag=True, default=True, help="断点续传")
+def pipeline(full: bool, resume: bool):
+    """全量管道（一键执行所有阶段）"""
+    config = Config()
+    state_dir = Path(config.vault_path) / ".davybase" / "progress"
+
+    async def run_pipeline():
+        # 阶段 1: 摄取
+        click.echo("=== 阶段 1: 摄取 ===")
+        ingest_orch = IngestOrchestrator(state_dir, config)
+        ingest_result = await ingest_orch.run(resume=resume)
+        click.echo(f"摄取：{ingest_result['total']} 条")
+
+        # 阶段 2: 消化
+        click.echo("=== 阶段 2: 消化 ===")
+        digest_orch = DigestOrchestrator(state_dir, config)
+        digest_result = await digest_orch.run(apply=True)
+        click.echo(f"消化：移动 {digest_result['total_moved']} 条")
+
+        # 阶段 3: 编译
+        click.echo("=== 阶段 3: 编译 ===")
+        compile_orch = CompileOrchestrator(state_dir, config)
+        compile_result = await compile_orch.run(kb_dir="processed/", threshold=3)
+        click.echo(f"编译：{compile_result['total_wiki_entries']} 个 Wiki 条目")
+
+    asyncio.run(run_pipeline())
 
 
 @cli.command()
