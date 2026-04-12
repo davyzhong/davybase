@@ -49,10 +49,11 @@ class BatchInboxExtractor:
         logger.info(f"进度已保存：{len(extracted_ids)} 条笔记")
 
     def _get_raw_synced_ids(self) -> set:
-        """获取 raw 目录中已同步的笔记 ID"""
+        """获取 raw 目录中已同步的笔记 ID（包括各知识库和_inbox 目录）"""
         synced_ids = set()
         for kb_dir in self.data_dir.iterdir():
-            if kb_dir.is_dir() and kb_dir.name not in ("_inbox", "_failed"):
+            if kb_dir.is_dir() and kb_dir.name not in ("_failed",):
+                # 包括所有知识库目录和_inbox 目录
                 for md_file in kb_dir.glob("*.md"):
                     try:
                         content = md_file.read_text(encoding='utf-8')
@@ -71,9 +72,18 @@ class BatchInboxExtractor:
         extracted_ids = self.load_progress()
         logger.info(f"已从进度恢复：已抽取 {len(extracted_ids)} 条笔记")
 
-        # 获取已同步的笔记 ID
+        # 获取已同步的笔记 ID（包括各知识库和_inbox 目录中的文件）
         raw_synced_ids = self._get_raw_synced_ids()
-        logger.info(f"raw 目录已同步：{len(raw_synced_ids)} 条")
+        logger.info(f"raw 目录已存在：{len(raw_synced_ids)} 条")
+
+        # 额外检查：扫描_inbox 目录中已有的文件（即使没有进度记录）
+        if self.inbox_dir.exists():
+            for md_file in self.inbox_dir.glob("*.md"):
+                # 从文件名提取 note_id (格式：{note_id}_{title}.md)
+                parts = md_file.stem.split("_", 1)
+                if parts:
+                    raw_synced_ids.add(parts[0])
+            logger.info(f"包含_inbox 中的文件：{len(raw_synced_ids)} 条")
 
         async with GetNoteClient(
             *self.config.get_getnote_credentials()
