@@ -59,6 +59,8 @@ python main.py status
 
 ## 配置
 
+详细配置说明请参阅 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
+
 ### 1. get 笔记 API 凭据
 
 运行 `/note config` 配置 get 笔记，会自动设置以下环境变量：
@@ -127,6 +129,12 @@ type: wiki
 # 每天早上 6 点增量同步（crontab）
 0 6 * * * cd /Users/qiming/workspace/davybase && python main.py incremental >> logs/sync.log 2>&1
 ```
+
+## 文档
+
+- **[CONFIGURATION.md](docs/CONFIGURATION.md)** - 配置指南（环境变量、config.yaml、CLI 参数）
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - 系统架构（四阶段管线、模块设计、数据库结构）
+- **[USAGE.md](docs/USAGE.md)** - 使用指南（快速开始、常见工作流、故障排查）
 
 ## 项目结构
 
