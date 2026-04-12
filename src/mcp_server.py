@@ -56,33 +56,46 @@ state_dir = Path(config.vault_path) / ".davybase" / "progress"
 
 @mcp.tool()
 async def ingest_notes(
-    batch_size: int = 100,
+    batch_size: int = 20,
     resume: bool = True,
-    source: str = "getnote"
+    source: str = "getnote",
+    concurrency: int = 3
 ) -> str:
     """从指定源抽取笔记到 raw/notes/_inbox/
 
     Args:
-        batch_size: 单批次最大抽取数量 (默认：100)
+        batch_size: 单批次最大抽取数量 (默认：20)
         resume: 是否从中断处恢复 (默认：True)
         source: 数据来源 getnote|local|pdf (默认：getnote)
+        concurrency: 并发请求数 (默认：3)
 
     Returns:
         JSON 格式的抽取结果
     """
-    status = IngestStatus(state_dir)
-    snapshot = status.snapshot()
+    try:
+        from src.orchestrator import IngestOrchestrator
 
-    result = {
-        "status": "ready",
-        "message": f"摄取服务就绪，已提取 {snapshot['total_extracted']} 条笔记",
-        "batch_size": batch_size,
-        "resume": resume,
-        "source": source,
-        "progress_url": "davydb://status/ingest"
-    }
+        orchestrator = IngestOrchestrator(state_dir, config)
+        result = await orchestrator.run(
+            batch_size=batch_size,
+            concurrency=concurrency,
+            resume=resume,
+            source=source
+        )
 
-    return json.dumps(result, ensure_ascii=False, indent=2)
+        return json.dumps({
+            "status": "completed",
+            "total_extracted": result.get("total", 0),
+            "failed": result.get("failed", 0),
+            "duration_seconds": result.get("duration", 0)
+        }, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        return json.dumps({
+            "status": "failed",
+            "error": str(e),
+            "suggestion": "建议减小 batch_size 或 concurrency 参数"
+        }, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -90,63 +103,98 @@ async def digest_notes(
     inbox_dir: str = "raw/notes/_inbox/",
     apply: bool = False,
     limit: Optional[int] = None,
-    provider: str = "minimax"
+    provider: str = "minimax",
+    provider_rotation: str = "round_robin",
+    concurrency: int = 5
 ) -> str:
     """为散落笔记生成标题、分类、原子化拆解
 
     Args:
         inbox_dir: 待处理笔记目录 (默认：raw/notes/_inbox/)
-        apply: 是否直接执行移动，否则仅预览 (默认：False)
+        apply: 是否直接执行移动，否则预览 (默认：False)
         limit: 限制处理数量，测试用 (默认：null)
-        provider: LLM 提供商 zhipu|minimax (默认：minimax)
+        provider: 首选 LLM 提供商 zhipu|minimax (默认：minimax)
+        provider_rotation: LLM 分配策略 single|round_robin|weighted (默认：round_robin)
+        concurrency: 并发任务数 (默认：5)
 
     Returns:
         JSON 格式的消化结果
     """
-    status = DigestStatus(state_dir)
-    snapshot = status.snapshot()
+    try:
+        from src.orchestrator import DigestOrchestrator
 
-    result = {
-        "status": "ready",
-        "message": f"消化服务就绪，已处理 {snapshot['total_processed']} 条，已移动 {snapshot['total_moved']} 条",
-        "inbox_dir": str(Path(config.vault_path) / inbox_dir),
-        "apply": apply,
-        "provider": provider,
-        "progress_url": "davydb://status/digest"
-    }
+        orchestrator = DigestOrchestrator(state_dir, config)
+        result = await orchestrator.run(
+            inbox_dir=inbox_dir,
+            apply=apply,
+            limit=limit,
+            provider=provider,
+            provider_rotation=provider_rotation,
+            concurrency=concurrency
+        )
 
-    return json.dumps(result, ensure_ascii=False, indent=2)
+        return json.dumps({
+            "status": "completed",
+            "total_processed": result.get("total_processed", 0),
+            "total_classified": result.get("total_classified", 0),
+            "total_moved": result.get("total_moved", 0),
+            "failed": result.get("failed", 0),
+            "duration_seconds": result.get("duration", 0)
+        }, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        return json.dumps({
+            "status": "failed",
+            "error": str(e),
+            "suggestion": "建议减小 concurrency 或切换 provider_rotation 为 single"
+        }, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
 async def compile_notes(
     kb_dir: str,
     threshold: int = 3,
-    provider: str = "zhipu"
+    provider: str = "zhipu",
+    provider_rotation: str = "round_robin",
+    concurrent_batches: int = 2
 ) -> str:
     """将知识库中的笔记聚合为结构化 Wiki 条目
 
     Args:
         kb_dir: 知识库目录 (如 processed/编程+AI/)
         threshold: 触发编译的最小笔记数 (默认：3)
-        provider: LLM 提供商 zhipu|minimax (默认：zhipu)
+        provider: 首选 LLM 提供商 zhipu|minimax (默认：zhipu)
+        provider_rotation: LLM 分配策略 single|round_robin|weighted (默认：round_robin)
+        concurrent_batches: 同时编译的批次数量 (默认：2)
 
     Returns:
         JSON 格式的编译结果
     """
-    status = CompileStatus(state_dir)
-    snapshot = status.snapshot()
+    try:
+        from src.orchestrator import CompileOrchestrator
 
-    result = {
-        "status": "ready",
-        "message": f"编译服务就绪，已有 {snapshot['total_wiki_entries']} 个 Wiki 条目",
-        "kb_dir": str(Path(config.vault_path) / kb_dir),
-        "threshold": threshold,
-        "provider": provider,
-        "progress_url": "davydb://status/compile"
-    }
+        orchestrator = CompileOrchestrator(state_dir, config)
+        result = await orchestrator.run(
+            kb_dir=kb_dir,
+            threshold=threshold,
+            provider=provider,
+            provider_rotation=provider_rotation,
+            concurrent_batches=concurrent_batches
+        )
 
-    return json.dumps(result, ensure_ascii=False, indent=2)
+        return json.dumps({
+            "status": "completed",
+            "total_wiki_entries": result.get("total_wiki_entries", 0),
+            "failed": result.get("failed", 0),
+            "duration_seconds": result.get("duration", 0)
+        }, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        return json.dumps({
+            "status": "failed",
+            "error": str(e),
+            "suggestion": "建议减小 concurrent_batches 或切换 provider_rotation"
+        }, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -163,6 +211,7 @@ async def publish_cards(
     Returns:
         JSON 格式的发布结果
     """
+    # TODO: 实现实际的发布逻辑
     status = PublishStatus(state_dir)
     snapshot = status.snapshot()
 

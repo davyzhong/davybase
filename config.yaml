@@ -28,6 +28,23 @@ compiler:
       model: codex-MiniMax-M2.7
       name: MiniMax M2.7
 
+# 并发管线配置
+pipeline:
+  ingest:
+    batch_size: 20
+    concurrency: 3          # 并发请求数
+    rate_limit_delay: 1.0   # API 请求间隔（秒）
+
+  digest:
+    batch_size: 10
+    concurrency: 5          # 并发任务数
+    provider_rotation: round_robin  # 多 LLM 分配策略：single|round_robin|weighted
+
+  compile:
+    batch_size: 15
+    concurrent_batches: 2   # 同时编译的批次数量
+    provider_rotation: round_robin
+
 sync:
   schedule: "0 6 * * *"   # 每天早上 6 点
   rate_limit_delay: 1.0   # API 请求间隔（秒）
