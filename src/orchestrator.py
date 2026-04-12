@@ -357,7 +357,7 @@ class DigestOrchestrator:
         执行并发消化
 
         Args:
-            inbox_dir: 待处理笔记目录
+            inbox_dir: 待处理笔记目录 (相对于 vault_path 或绝对路径)
             apply: 是否直接执行移动
             limit: 限制处理数量
             provider: 首选 LLM 提供商
@@ -370,8 +370,13 @@ class DigestOrchestrator:
         start_time = time.time()
         logger.info(f"开始并发消化 (concurrency={concurrency}, provider_rotation={provider_rotation})")
 
-        # 扫描待处理笔记
-        notes_path = self.raw_dir / "notes" / inbox_dir
+        # 处理路径（支持相对路径和绝对路径）
+        if inbox_dir.startswith('/'):
+            notes_path = Path(inbox_dir)
+        else:
+            # 相对于 vault_path 的路径
+            notes_path = Path(self.config.vault_path) / inbox_dir
+
         if not notes_path.exists():
             logger.warning(f"目录不存在：{notes_path}")
             return {
@@ -496,15 +501,17 @@ class DigestOrchestrator:
             content = file_path.read_text(encoding='utf-8')
 
             # 调用 LLM 生成标题和分类
-            # TODO: 实现实际的 LLM 调用逻辑
-            # 这里暂时返回一个占位结果
-            title = f"笔记_{note_id[:8]}"
-            recommended_kb = "未分类"
-            confidence = "low"
+            result = await provider.digest_note(content)
+            title = result["title"]
+            recommended_kb = result["category"]
+            confidence = result["confidence"]
+            tags = result["tags"]
+
+            logger.debug(f"  ✓ 消化 {note_id}: 标题='{title}', 分类='{recommended_kb}', 置信度={confidence}")
 
             # 更新状态
             self.state.mark_summarized(note_id, title)
-            self.state.mark_classified(note_id, recommended_kb, "use_existing", confidence)
+            self.state.mark_classified(note_id, recommended_kb, "use_llm", confidence)
 
             if apply:
                 # 移动到知识库
@@ -523,7 +530,9 @@ class DigestOrchestrator:
                     "classified": True,
                     "moved": True,
                     "title": title,
-                    "kb": recommended_kb
+                    "kb": recommended_kb,
+                    "confidence": confidence,
+                    "tags": tags
                 }
             else:
                 return {
@@ -531,11 +540,13 @@ class DigestOrchestrator:
                     "classified": True,
                     "moved": False,
                     "title": title,
-                    "kb": recommended_kb
+                    "kb": recommended_kb,
+                    "confidence": confidence,
+                    "tags": tags
                 }
 
         except Exception as e:
-            logger.error(f"消化 {note_id} 失败：{e}")
+            logger.error(f"  ✗ 消化 {note_id} 失败：{e}")
             return {"success": False, "error": str(e)}
 
 

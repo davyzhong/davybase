@@ -1,4 +1,13 @@
 from abc import ABC, abstractmethod
+from typing import TypedDict
+
+
+class DigestResult(TypedDict):
+    """消化结果"""
+    title: str
+    category: str
+    confidence: str
+    tags: list[str]
 
 
 class LLMProvider(ABC):
@@ -15,4 +24,9 @@ class LLMProvider(ABC):
     @abstractmethod
     async def compile_notes(self, notes: list[str], existing_wiki: list[str]) -> str:
         """编译笔记为 wiki 条目"""
+        pass
+
+    @abstractmethod
+    async def digest_note(self, content: str) -> DigestResult:
+        """消化单条笔记：生成标题、分类、标签"""
         pass
