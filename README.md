@@ -4,11 +4,27 @@
 
 受 [Karpathy 的个人知识库 wiki 方案](https://karpathy.ai/llmcookbook/) 启发，Davybase 帮助你将被困在 get 笔记 APP 中的知识自动化导出，编译为带双向链接的结构化 wiki，最终发布到 Obsidian。
 
-**v3.0 新特性**: AI Native 架构，支持自然语言交互和定时自动执行！
+**v4.0 新特性**: 并发管线架构，支持多 LLM 负载均衡和 ~76% 时间节省！
 
 ## 快速开始
 
-### 方式 1: AI Native (推荐 - v3.0)
+### 方式 1: 并发 CLI (推荐 - v4.0)
+
+```bash
+# 并发抽取 (concurrency=3)
+python main.py ingest --batch-size 20 --concurrency 3 --resume
+
+# 并发消化 (concurrency=5, 多 LLM 轮询)
+python main.py digest --concurrency 5 --provider-rotation round_robin --apply
+
+# 并发编译 (2 批次并发，不同批次使用不同 LLM)
+python main.py compile --kb-dir processed/编程+AI/ --concurrent-batches 2
+
+# 一键执行全量管道
+python main.py pipeline --full --resume
+```
+
+### 方式 2: AI Native (MCP + Skills)
 
 ```bash
 # 1. 安装 MCP SDK
@@ -27,12 +43,12 @@ pip install --system mcp
 
 # 3. 使用自然语言交互
 /davybase status    # 查看管线状态
-/davybase ingest    # 摄取笔记
-/davybase digest    # 消化处理
-/davybase compile   # 编译 Wiki
+/davybase ingest    # 摄取笔记 (concurrency=3)
+/davybase digest    # 消化处理 (concurrency=5, round_robin)
+/davybase compile   # 编译 Wiki (concurrent_batches=2)
 ```
 
-### 方式 2: 传统 CLI
+### 方式 3: 传统 CLI
 
 ```bash
 # 安装依赖
@@ -53,6 +69,8 @@ python main.py status
 
 ## 功能特性
 
+- **并发管线架构** (v4.0): 支持分批次、并发执行，~76% 时间节省
+- **多 LLM 负载均衡**: 轮询分配智谱和 MiniMax，减少单点限流影响
 - **AI Native 架构** (v3.0): 支持自然语言交互，无需记忆命令
 - **MCP 协议**: 标准 Model Context Protocol，可与其他 AI 工具集成
 - **Claude Skills**: 预定义技能，一键执行复杂任务
