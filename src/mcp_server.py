@@ -113,7 +113,7 @@ async def digest_notes(
         inbox_dir: 待处理笔记目录 (默认：raw/notes/_inbox/)
         apply: 是否直接执行移动，否则预览 (默认：False)
         limit: 限制处理数量，测试用 (默认：null)
-        provider: 首选 LLM 提供商 zhipu|minimax (默认：minimax)
+        provider: 首选 LLM 提供商 qwen|minimax|zhipu (默认：minimax)
         provider_rotation: LLM 分配策略 single|round_robin|weighted (默认：round_robin)
         concurrency: 并发任务数 (默认：5)
 
@@ -154,7 +154,7 @@ async def digest_notes(
 async def compile_notes(
     kb_dir: str,
     threshold: int = 3,
-    provider: str = "zhipu",
+    provider: str = "qwen",
     provider_rotation: str = "round_robin",
     concurrent_batches: int = 2
 ) -> str:
@@ -163,7 +163,7 @@ async def compile_notes(
     Args:
         kb_dir: 知识库目录 (如 processed/编程+AI/)
         threshold: 触发编译的最小笔记数 (默认：3)
-        provider: 首选 LLM 提供商 zhipu|minimax (默认：zhipu)
+        provider: 首选 LLM 提供商 qwen|minimax|zhipu (默认：qwen)
         provider_rotation: LLM 分配策略 single|round_robin|weighted (默认：round_robin)
         concurrent_batches: 同时编译的批次数量 (默认：2)
 

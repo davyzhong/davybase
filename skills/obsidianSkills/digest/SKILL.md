@@ -29,8 +29,8 @@
 | 策略 | 描述 | 适用场景 |
 |------|------|----------|
 | `single` | 始终使用指定的单一 LLM | 调试、测试单一 LLM 效果 |
-| `round_robin` | 智谱和 MiniMax 轮询分配 | 默认推荐，分散限流风险 |
-| `weighted` | 加权分配（智谱 70%, MiniMax 30%） | 一个 LLM 配额更充足时 |
+| `round_robin` | 千问和 MiniMax 轮询分配 | 默认推荐，分散限流风险 |
+| `weighted` | 加权分配（MiniMax 60%, 千问 40%） | 默认推荐，MiniMax 配额更充足 |
 
 ## Atomic Notes 原则
 
