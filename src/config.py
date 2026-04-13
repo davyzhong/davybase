@@ -76,7 +76,7 @@ class Config:
         优先级：环境变量 > secrets.yaml > 错误
         """
         # 环境变量优先级最高
-        env_map = {"zhipu": "ZHIPU_API_KEY", "minimax": "MINIMAX_API_KEY"}
+        env_map = {"zhipu": "ZHIPU_API_KEY", "minimax": "MINIMAX_API_KEY", "qwen": "QWEN_API_KEY"}
         env_var = env_map.get(provider)
 
         if env_var:
@@ -86,7 +86,7 @@ class Config:
 
         # 从 secrets.yaml 读取
         llm_config = self._secrets.get("llm", {})
-        key_map = {"zhipu": "zhipu_api_key", "minimax": "minimax_api_key"}
+        key_map = {"zhipu": "zhipu_api_key", "minimax": "minimax_api_key", "qwen": "qwen_api_key"}
         secret_key = key_map.get(provider)
 
         if secret_key:
@@ -106,6 +106,12 @@ class Config:
                 f"未配置 MiniMax API 密钥。"
                 f"方式 1：设置环境变量 MINIMAX_API_KEY；"
                 f"方式 2：在 secrets.yaml 中配置 llm.minimax_api_key"
+            )
+        elif provider == "qwen":
+            raise RuntimeError(
+                f"未配置千问 API 密钥。"
+                f"方式 1：设置环境变量 QWEN_API_KEY；"
+                f"方式 2：在 secrets.yaml 中配置 llm.qwen_api_key"
             )
         else:
             raise ValueError(f"未知 LLM 提供商：{provider}")

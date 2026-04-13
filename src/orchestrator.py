@@ -32,6 +32,7 @@ from src.extractor import Extractor, GetNoteClient
 from src.llm_providers.base import LLMProvider
 from src.llm_providers.zhipu import ZhipuProvider
 from src.llm_providers.minimax import MiniMaxProvider
+from src.llm_providers.qwen import QwenProvider
 from src.writer import Writer
 
 logger = logging.getLogger("davybase.orchestrator")
@@ -325,6 +326,7 @@ class DigestOrchestrator:
 
         # 初始化 LLM 提供商
         self.providers = {
+            "qwen": QwenProvider(config.get_llm_api_key("qwen")),
             "zhipu": ZhipuProvider(config.get_llm_api_key("zhipu")),
             "minimax": MiniMaxProvider(config.get_llm_api_key("minimax"))
         }
@@ -335,14 +337,17 @@ class DigestOrchestrator:
         if strategy == "round_robin":
             return self.providers[keys[index % len(keys)]]
         elif strategy == "weighted":
-            # 70% 智谱，30% MiniMax
+            # 60% 千问，25% 智谱，15% MiniMax
             import random
-            if random.random() < 0.7:
+            r = random.random()
+            if r < 0.6:
+                return self.providers["qwen"]
+            elif r < 0.85:
                 return self.providers["zhipu"]
             else:
                 return self.providers["minimax"]
         else:  # single
-            return self.providers["zhipu"]
+            return self.providers["qwen"]
 
     async def run(
         self,
@@ -567,6 +572,7 @@ class CompileOrchestrator:
 
         # 初始化 LLM 提供商
         self.providers = {
+            "qwen": QwenProvider(config.get_llm_api_key("qwen")),
             "zhipu": ZhipuProvider(config.get_llm_api_key("zhipu")),
             "minimax": MiniMaxProvider(config.get_llm_api_key("minimax"))
         }
@@ -577,13 +583,15 @@ class CompileOrchestrator:
         if strategy == "round_robin":
             return self.providers[keys[index % len(keys)]]
         elif strategy == "weighted":
+            # 60% MiniMax, 40% 千问
             import random
-            if random.random() < 0.7:
-                return self.providers["zhipu"]
-            else:
+            r = random.random()
+            if r < 0.6:
                 return self.providers["minimax"]
+            else:
+                return self.providers["qwen"]
         else:  # single
-            return self.providers["zhipu"]
+            return self.providers["minimax"]
 
     async def run(
         self,
