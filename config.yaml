@@ -48,18 +48,17 @@ pipeline:
       - name: qwen
         provider: qwen
         batch_size: 2           # 每次处理 2 条
-      - name: zhipu
-        provider: zhipu
-        batch_size: 1           # 智谱 TPM 配额低，降至 1
+      # - name: zhipu           # 智谱 TPM 配额过低，禁用 digest 阶段
+      #   provider: zhipu
+      #   batch_size: 1
       - name: minimax
         provider: minimax
         batch_size: 2           # 每次处理 2 条
 
     # Provider 级别请求间隔配置（秒）
-    # 用于解决不同 API 的限流问题，特别是智谱 TPM 配额较低的场景
-    # 智谱 GLM-5: TPM 配额约 100-200 tokens/分钟，每次 digest 请求约 100 tokens，需 60s 恢复
+    # 智谱已禁用 digest，仅保留配置用于 compile 阶段
     provider_rate_limit_delays:
-      zhipu: 60.0      # 智谱 TPM 配额低，需 60 秒间隔（实测 15s/30s 仍触发限流）
+      zhipu: 120.0     # 智谱 TPM 配额极低，compile 阶段使用
       qwen: 3.0        # 千问配额充足，3 秒足够
       minimax: 3.0     # MiniMax 配额充足，3 秒足够
 
