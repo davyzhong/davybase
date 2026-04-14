@@ -108,6 +108,7 @@ def digest(inbox_dir: str, worker_mode: str, workers: str, concurrency: int, pro
     import json
 
     config = Config()
+    logger = setup_logging(f"{config.logs_path}/digest.log")
     state_dir = Path(config.vault_path) / ".davybase" / "progress"
     orchestrator = DigestOrchestrator(state_dir, config)
 
