@@ -33,6 +33,15 @@ from src.llm_providers.base import LLMProvider
 from src.llm_providers.zhipu import ZhipuProvider
 from src.llm_providers.minimax import MiniMaxProvider
 from src.llm_providers.qwen import QwenProvider
+
+# 进度可视化
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+    tqdm = None
+from src.llm_providers.qwen import QwenProvider
 from src.writer import Writer
 
 logger = logging.getLogger("davybase.orchestrator")
@@ -61,27 +70,40 @@ class IngestOrchestrator:
         self.raw_dir = Path(config.raw_path) if hasattr(config, 'raw_path') else Path(config.vault_path) / "raw"
         self.api_key, self.client_id = config.get_getnote_credentials()
 
+        # 从配置文件读取管线参数
+        pipeline_config = getattr(config, 'raw_config', {}).get('pipeline', {}).get('ingest', {})
+        self.default_batch_size = pipeline_config.get('batch_size', 10)
+        self.default_concurrency = pipeline_config.get('concurrency', 2)
+        self.default_rate_limit_delay = pipeline_config.get('rate_limit_delay', 2.0)
+        self.default_page_delay = pipeline_config.get('page_delay', 3.0)
+        self.default_resume = pipeline_config.get('resume', True)
+
     async def run(
         self,
-        batch_size: int = 20,
-        concurrency: int = 3,
-        resume: bool = True,
+        batch_size: int = None,
+        concurrency: int = None,
+        resume: bool = None,
         source: str = "getnote"
     ) -> Dict[str, Any]:
         """
         执行并发抽取
 
         Args:
-            batch_size: 单批次最大抽取数量
-            concurrency: 并发请求数
-            resume: 是否从中断处恢复
+            batch_size: 单批次最大抽取数量（默认从配置文件读取）
+            concurrency: 并发请求数（默认从配置文件读取）
+            resume: 是否从中断处恢复（默认从配置文件读取）
             source: 数据来源 getnote|local
 
         Returns:
             抽取结果字典
         """
+        # CLI 参数覆盖配置文件
+        batch_size = batch_size if batch_size is not None else self.default_batch_size
+        concurrency = concurrency if concurrency is not None else self.default_concurrency
+        resume = resume if resume is not None else self.default_resume
+
         start_time = time.time()
-        logger.info(f"开始并发抽取 (batch_size={batch_size}, concurrency={concurrency})")
+        logger.info(f"开始并发抽取 (batch_size={batch_size}, concurrency={concurrency}, rate_limit_delay={self.default_rate_limit_delay}s)")
 
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         inbox_dir = self.raw_dir / "notes" / "_inbox"
@@ -97,7 +119,7 @@ class IngestOrchestrator:
         total_extracted = 0
         failed = 0
 
-        async with GetNoteClient(self.api_key, self.client_id) as client:
+        async with GetNoteClient(self.api_key, self.client_id, rate_limit_delay=self.default_rate_limit_delay) as client:
             # 获取知识库笔记
             kbs = await client.list_knowledge_bases()
             logger.info(f"发现 {len(kbs)} 个知识库")
@@ -149,7 +171,8 @@ class IngestOrchestrator:
             all_notes.extend(notes)
             page += 1
             if has_more:
-                await asyncio.sleep(0.5)
+                # 分页延迟，避免限流
+                await asyncio.sleep(self.default_page_delay)
 
         # 过滤已抽取的
         pending_notes = [n for n in all_notes if n["note_id"] not in extracted_ids]
@@ -324,6 +347,20 @@ class DigestOrchestrator:
         self.raw_dir = Path(config.raw_path) if hasattr(config, 'raw_path') else Path(config.vault_path) / "raw"
         self.processed_dir = Path(config.data_path) if hasattr(config, 'data_path') else Path(config.vault_path) / "processed"
 
+        # 从配置文件读取管线参数
+        pipeline_config = getattr(config, 'raw_config', {}).get('pipeline', {}).get('digest', {})
+        self.worker_mode = pipeline_config.get('worker_mode', 'batch')  # pool=Worker 池模式，batch=批次模式
+        self.worker_configs = pipeline_config.get('workers', [
+            {"name": "qwen", "provider": "qwen", "batch_size": 2},
+            {"name": "zhipu", "provider": "zhipu", "batch_size": 2},
+            {"name": "minimax", "provider": "minimax", "batch_size": 2},
+        ])
+        self.default_batch_size = pipeline_config.get('batch_size', 10)
+        self.default_concurrency = pipeline_config.get('concurrency', 3)
+        self.default_provider_rotation = pipeline_config.get('provider_rotation', 'round_robin')
+        self.default_apply = pipeline_config.get('apply', False)
+        self.default_limit = pipeline_config.get('limit')
+
         # 初始化 LLM 提供商
         self.providers = {
             "qwen": QwenProvider(config.get_llm_api_key("qwen")),
@@ -337,41 +374,47 @@ class DigestOrchestrator:
         if strategy == "round_robin":
             return self.providers[keys[index % len(keys)]]
         elif strategy == "weighted":
-            # 60% 千问，25% 智谱，15% MiniMax
+            # 60% 千问，40% MiniMax
             import random
             r = random.random()
             if r < 0.6:
                 return self.providers["qwen"]
-            elif r < 0.85:
-                return self.providers["zhipu"]
             else:
                 return self.providers["minimax"]
+        elif strategy == "dual":
+            # 50% Qwen, 50% MiniMax (双模型负载均衡，避开智谱)
+            import random
+            return self.providers["qwen"] if random.random() < 0.5 else self.providers["minimax"]
         else:  # single
             return self.providers["qwen"]
 
     async def run(
         self,
-        inbox_dir: str = "raw/notes/_inbox/",
-        apply: bool = False,
+        inbox_dir: str = None,
+        apply: bool = None,
         limit: Optional[int] = None,
-        provider: str = "minimax",
-        provider_rotation: str = "round_robin",
-        concurrency: int = 5
+        provider_rotation: str = None,
+        concurrency: int = None
     ) -> Dict[str, Any]:
         """
         执行并发消化
 
         Args:
             inbox_dir: 待处理笔记目录 (相对于 vault_path 或绝对路径)
-            apply: 是否直接执行移动
-            limit: 限制处理数量
-            provider: 首选 LLM 提供商
-            provider_rotation: LLM 分配策略
-            concurrency: 并发任务数
+            apply: 是否直接执行移动（默认从配置文件读取）
+            limit: 限制处理数量（默认从配置文件读取）
+            provider_rotation: LLM 分配策略（默认从配置文件读取）
+            concurrency: 并发任务数（默认从配置文件读取）
 
         Returns:
             消化结果字典
         """
+        # CLI 参数覆盖配置文件
+        inbox_dir = inbox_dir if inbox_dir is not None else "raw/notes/_inbox/"
+        apply = apply if apply is not None else self.default_apply
+        limit = limit if limit is not None else self.default_limit
+        provider_rotation = provider_rotation if provider_rotation is not None else self.default_provider_rotation
+        concurrency = concurrency if concurrency is not None else self.default_concurrency
         start_time = time.time()
         logger.info(f"开始并发消化 (concurrency={concurrency}, provider_rotation={provider_rotation})")
 
@@ -418,16 +461,32 @@ class DigestOrchestrator:
         if limit:
             pending_files = pending_files[:limit]
 
+        total_to_process = len(pending_files)
+        processed_count = 0
+
         # 分批次
         batch_size = 10
         batches = [pending_files[i:i+batch_size] for i in range(0, len(pending_files), batch_size)]
 
-        # 并发处理
-        semaphore = asyncio.Semaphore(concurrency)
+        # 进度条初始化
+        pbar = None
+        if HAS_TQDM:
+            pbar = tqdm(total=total_to_process, desc="消化笔记", unit="条")
+
+        # 并发处理：dual 策略 = Qwen + MiniMax 各 5 并发，共 10 并发
+        # 避免使用智谱 API（限流严重）
+        semaphores = {
+            "qwen": asyncio.Semaphore(5),
+            "minimax": asyncio.Semaphore(5)
+        }
         results = await asyncio.gather(*[
-            self._process_batch(batch, i, provider, provider_rotation, apply, semaphore)
+            self._process_batch_with_qwen_minimax(batch, i, apply, semaphores, pbar)
             for i, batch in enumerate(batches)
         ], return_exceptions=True)
+
+        # 关闭进度条
+        if pbar:
+            pbar.close()
 
         # 聚合结果
         total_processed = sum(r.get("processed", 0) for r in results if isinstance(r, dict))
@@ -456,6 +515,140 @@ class DigestOrchestrator:
         except Exception:
             pass
         return None
+
+    async def _process_batch_with_progress(
+        self,
+        files: List[Path],
+        batch_index: int,
+        preferred_provider: str,
+        provider_rotation: str,
+        apply: bool,
+        semaphore: asyncio.Semaphore,
+        pbar
+    ) -> Dict[str, int]:
+        """处理一批笔记（带进度更新）"""
+        async with semaphore:
+            # 选择 LLM 提供商
+            provider = self._select_provider(batch_index, provider_rotation)
+            provider_name = self._get_provider_name(provider)
+            logger.info(f"批次 {batch_index}: 使用 {provider_name}, {len(files)} 条笔记")
+
+            results = []
+            for f in files:
+                result = await self._digest_single_file(f, provider, apply)
+                results.append(result)
+                # 更新进度条
+                if pbar:
+                    pbar.update(1)
+                    pbar.set_postfix({"成功": sum(1 for r in results if r["success"]), "失败": sum(1 for r in results if not r["success"])})
+
+            processed = sum(1 for r in results if r["success"])
+            classified = sum(1 for r in results if r.get("classified", False))
+            moved = sum(1 for r in results if r.get("moved", False))
+            failed = len(results) - processed
+
+            return {
+                "processed": processed,
+                "classified": classified,
+                "moved": moved,
+                "failed": failed
+            }
+
+    def _get_provider_name(self, provider) -> str:
+        """获取提供商名称"""
+        if isinstance(provider, ZhipuProvider):
+            return "智谱"
+        elif isinstance(provider, MiniMaxProvider):
+            return "MiniMax"
+        elif isinstance(provider, QwenProvider):
+            return "千问"
+        return "未知"
+
+    async def _process_batch_with_qwen_minimax(
+        self,
+        files: List[Path],
+        batch_index: int,
+        apply: bool,
+        semaphores: Dict[str, asyncio.Semaphore],
+        pbar
+    ) -> Dict[str, int]:
+        """处理一批笔记（双模型并发，Qwen + MiniMax 各 5 并发）"""
+        # 先选择 LLM 提供商（决定使用哪个 semaphore）
+        provider = self._select_provider(batch_index, "dual")
+        provider_name = self._get_provider_name(provider)
+
+        # 根据 provider 选择对应的 semaphore
+        if isinstance(provider, QwenProvider):
+            semaphore = semaphores["qwen"]
+        else:  # MiniMaxProvider
+            semaphore = semaphores["minimax"]
+
+        async with semaphore:
+            logger.info(f"批次 {batch_index}: 使用 {provider_name}, {len(files)} 条笔记")
+
+            results = []
+            for f in files:
+                result = await self._digest_single_file(f, provider, apply)
+                results.append(result)
+                # 更新进度条
+                if pbar:
+                    pbar.update(1)
+                    pbar.set_postfix({"成功": sum(1 for r in results if r["success"]), "失败": sum(1 for r in results if not r["success"])})
+
+            processed = sum(1 for r in results if r["success"])
+            classified = sum(1 for r in results if r.get("classified", False))
+            moved = sum(1 for r in results if r.get("moved", False))
+            failed = len(results) - processed
+
+            return {
+                "processed": processed,
+                "classified": classified,
+                "moved": moved,
+                "failed": failed
+            }
+
+    async def _process_batch_with_dual_provider(
+        self,
+        files: List[Path],
+        batch_index: int,
+        apply: bool,
+        semaphores: Dict[str, asyncio.Semaphore],
+        pbar
+    ) -> Dict[str, int]:
+        """处理一批笔记（双模型并发，MiniMax 和智谱各 3 并发）"""
+        # 先选择 LLM 提供商（决定使用哪个 semaphore）
+        provider = self._select_provider(batch_index, "dual")
+        provider_name = self._get_provider_name(provider)
+
+        # 根据 provider 选择对应的 semaphore
+        if isinstance(provider, MiniMaxProvider):
+            semaphore = semaphores["minimax"]
+        else:  # ZhipuProvider
+            semaphore = semaphores["zhipu"]
+
+        async with semaphore:
+            logger.info(f"批次 {batch_index}: 使用 {provider_name}, {len(files)} 条笔记")
+
+            results = []
+            for f in files:
+                result = await self._digest_single_file(f, provider, apply)
+                results.append(result)
+                # 更新进度条
+                if pbar:
+                    pbar.update(1)
+                    pbar.set_postfix({"成功": sum(1 for r in results if r["success"]), "失败": sum(1 for r in results if not r["success"])})
+
+            processed = sum(1 for r in results if r["success"])
+            classified = sum(1 for r in results if r.get("classified", False))
+            moved = sum(1 for r in results if r.get("moved", False))
+            failed = len(results) - processed
+
+            return {
+                "processed": processed,
+                "classified": classified,
+                "moved": moved,
+                "failed": failed
+            }
 
     async def _process_batch(
         self,
@@ -570,12 +763,29 @@ class CompileOrchestrator:
         self.vault_path = Path(config.vault_path)
         self.writer = Writer(str(config.vault_path), use_cli=True)
 
+        # 从配置文件读取管线参数
+        pipeline_config = getattr(config, 'raw_config', {}).get('pipeline', {}).get('compile', {})
+        self.default_batch_size = pipeline_config.get('batch_size', 5)
+        self.default_concurrent_batches = pipeline_config.get('concurrent_batches', 1)
+        self.default_provider_rotation = pipeline_config.get('provider_rotation', 'round_robin')
+        self.default_threshold = pipeline_config.get('threshold', 3)
+
         # 初始化 LLM 提供商
         self.providers = {
             "qwen": QwenProvider(config.get_llm_api_key("qwen")),
             "zhipu": ZhipuProvider(config.get_llm_api_key("zhipu")),
             "minimax": MiniMaxProvider(config.get_llm_api_key("minimax"))
         }
+
+    def _get_provider_name(self, provider) -> str:
+        """获取提供商名称"""
+        if isinstance(provider, ZhipuProvider):
+            return "智谱"
+        elif isinstance(provider, MiniMaxProvider):
+            return "MiniMax"
+        elif isinstance(provider, QwenProvider):
+            return "千问"
+        return "未知"
 
     def _select_provider(self, index: int, strategy: str) -> LLMProvider:
         """根据策略选择 LLM 提供商"""
@@ -590,32 +800,35 @@ class CompileOrchestrator:
                 return self.providers["minimax"]
             else:
                 return self.providers["qwen"]
-        else:  # single
+        else:  # single - 默认使用 MiniMax
             return self.providers["minimax"]
 
     async def run(
         self,
         kb_dir: str,
-        threshold: int = 3,
-        provider: str = "zhipu",
-        provider_rotation: str = "round_robin",
-        concurrent_batches: int = 2
+        threshold: int = None,
+        provider_rotation: str = None,
+        concurrent_batches: int = None
     ) -> Dict[str, Any]:
         """
         执行并发编译
 
         Args:
             kb_dir: 知识库目录
-            threshold: 触发编译的最小笔记数
-            provider: 首选 LLM 提供商
-            provider_rotation: LLM 分配策略
-            concurrent_batches: 同时编译的批次数量
+            threshold: 触发编译的最小笔记数（默认从配置文件读取）
+            provider_rotation: LLM 分配策略（默认从配置文件读取）
+            concurrent_batches: 同时编译的批次数量（默认从配置文件读取）
 
         Returns:
             编译结果字典
         """
+        # CLI 参数覆盖配置文件
+        threshold = threshold if threshold is not None else self.default_threshold
+        provider_rotation = provider_rotation if provider_rotation is not None else self.default_provider_rotation
+        concurrent_batches = concurrent_batches if concurrent_batches is not None else self.default_concurrent_batches
+
         start_time = time.time()
-        logger.info(f"开始并发编译 (concurrent_batches={concurrent_batches}, provider_rotation={provider_rotation})")
+        logger.info(f"开始并发编译 (batch_size={self.default_batch_size}, concurrent_batches={concurrent_batches}, provider_rotation={provider_rotation})")
 
         # 读取知识库笔记
         kb_path = self.vault_path / kb_dir
@@ -640,7 +853,7 @@ class CompileOrchestrator:
             }
 
         # 分批次
-        batch_size = 15
+        batch_size = self.default_batch_size
         batches = [note_files[i:i+batch_size] for i in range(0, len(note_files), batch_size)]
         logger.info(f"分为 {len(batches)} 个批次")
 
@@ -676,7 +889,7 @@ class CompileOrchestrator:
         async with semaphore:
             # 选择 LLM 提供商
             provider = self._select_provider(batch_index, provider_rotation)
-            provider_name = "智谱" if provider == self.providers.get("zhipu") else "MiniMax"
+            provider_name = self._get_provider_name(provider)
             logger.info(f"编译批次 {batch_index}: 使用 {provider_name}, {len(files)} 条笔记")
 
             try:
@@ -684,12 +897,15 @@ class CompileOrchestrator:
                 notes_content = [f.read_text(encoding='utf-8') for f in files]
 
                 # 调用 LLM 编译
-                # TODO: 实现实际的 LLM 编译逻辑
-                # 这里暂时返回一个占位结果
-                wiki_entries = 1  # 假设生成 1 个 Wiki 条目
+                raw_content = await provider.compile_notes(notes_content, [])
+
+                # 保存 wiki 条目
+                wiki_entries_count = self._save_wiki_entries(raw_content)
+
+                logger.info(f"  成功编译 {len(files)} 条笔记，生成 {wiki_entries_count} 个 Wiki 条目")
 
                 return {
-                    "wiki_entries": wiki_entries,
+                    "wiki_entries": wiki_entries_count,
                     "failed": 0
                 }
 
@@ -699,6 +915,51 @@ class CompileOrchestrator:
                     "wiki_entries": 0,
                     "failed": len(files)
                 }
+
+    def _save_wiki_entries(self, content: str) -> int:
+        """保存 wiki 条目到文件系统"""
+        import re
+
+        # 分割条目
+        entries = content.split("---ENTRY---")
+        saved_count = 0
+
+        for entry in entries:
+            entry = entry.strip()
+            if not entry:
+                continue
+
+            # 提取标题
+            title = self._extract_title(entry)
+            if not title:
+                logger.warning("无法提取标题，跳过条目")
+                continue
+
+            # 使用 Writer 保存
+            try:
+                self.writer.write(entry)
+                saved_count += 1
+                logger.debug(f"  保存 wiki 条目：{title}")
+            except Exception as e:
+                logger.error(f"保存 wiki 条目失败 {title}: {e}")
+
+        return saved_count
+
+    def _extract_title(self, content: str) -> Optional[str]:
+        """从内容中提取标题"""
+        import re
+
+        # 尝试从 frontmatter 提取
+        match = re.search(r"^---\s*\n.*?title:\s*(.+?)\s*\n", content, re.DOTALL | re.MULTILINE)
+        if match:
+            return match.group(1).strip()
+
+        # 回退到 Markdown 标题
+        for line in content.split("\n"):
+            if line.startswith("# "):
+                return line[2:].strip()
+
+        return None
 
 
 # =============================================================================
