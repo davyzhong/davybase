@@ -461,6 +461,15 @@ class DigestOrchestrator:
         if limit:
             pending_files = pending_files[:limit]
 
+        # 根据 worker_mode 选择执行方式
+        if self.worker_mode == "pool":
+            return await self._run_worker_pool(
+                pending_files=pending_files,
+                apply=apply,
+                limit=None  # 已经在上限处理过了
+            )
+
+        # 原有批次模式
         total_to_process = len(pending_files)
         processed_count = 0
 
@@ -746,6 +755,141 @@ class DigestOrchestrator:
         except Exception as e:
             logger.error(f"  ✗ 消化 {note_id} 失败：{e}")
             return {"success": False, "error": str(e)}
+
+    async def _run_worker_pool(
+        self,
+        pending_files: List[Path],
+        apply: bool,
+        limit: Optional[int]
+    ) -> Dict[str, Any]:
+        """Worker 池模式：每个模型独立领取任务"""
+        import asyncio
+
+        # 创建任务队列
+        task_queue = asyncio.Queue()
+        files_to_process = pending_files[:limit] if limit else pending_files
+        for f in files_to_process:
+            await task_queue.put(f)
+
+        # 进度追踪（按模型分离）
+        progress = {
+            wc["name"]: {"processed": 0, "success": 0, "failed": 0}
+            for wc in self.worker_configs
+        }
+        progress_lock = asyncio.Lock()
+
+        # 进度条初始化
+        pbar = None
+        if HAS_TQDM:
+            pbar = tqdm(total=len(files_to_process), desc="消化笔记", unit="条")
+
+        # 创建 Workers
+        workers = []
+        for worker_config in self.worker_configs:
+            name = worker_config["name"]
+            provider_name = worker_config["provider"]
+            provider = self.providers[provider_name]
+            batch_size = worker_config.get("batch_size", 2)
+
+            task = asyncio.create_task(
+                self._worker(
+                    name=name,
+                    provider=provider,
+                    task_queue=task_queue,
+                    batch_size=batch_size,
+                    apply=apply,
+                    progress=progress,
+                    progress_lock=progress_lock,
+                    pbar=pbar
+                )
+            )
+            workers.append(task)
+
+        # 等待所有 Workers 完成
+        await asyncio.gather(*workers, return_exceptions=True)
+
+        # 关闭进度条
+        if pbar:
+            pbar.close()
+
+        # 聚合结果
+        total_processed = sum(p["processed"] for p in progress.values())
+        total_success = sum(p["success"] for p in progress.values())
+        total_failed = sum(p["failed"] for p in progress.values())
+
+        logger.info(f"消化完成：处理 {total_processed} 条，成功 {total_success} 条，失败 {total_failed} 条")
+
+        return {
+            "total_processed": total_processed,
+            "total_classified": total_success,  # 成功=已分类
+            "total_moved": total_success if apply else 0,
+            "failed": total_failed,
+            "by_provider": progress
+        }
+
+    async def _worker(
+        self,
+        name: str,
+        provider: LLMProvider,
+        task_queue: asyncio.Queue,
+        batch_size: int,
+        apply: bool,
+        progress: Dict,
+        progress_lock: asyncio.Lock,
+        pbar
+    ) -> None:
+        """Worker 协程：从队列领取任务，处理完立即领取下一批"""
+        logger.info(f"[Worker {name}] 启动，批次大小={batch_size}")
+
+        while True:
+            # 领取一批笔记（batch_size 条）
+            batch = []
+            for _ in range(batch_size):
+                try:
+                    file = task_queue.get_nowait()
+                    batch.append(file)
+                    task_queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
+
+            if not batch:
+                logger.info(f"[Worker {name}] 队列为空，退出")
+                return
+
+            # 处理本批次
+            for file in batch:
+                result = await self._digest_single_file(file, provider, apply)
+
+                # 更新进度
+                async with progress_lock:
+                    progress[name]["processed"] += 1
+                    if result["success"]:
+                        progress[name]["success"] += 1
+                    else:
+                        progress[name]["failed"] += 1
+
+                    # 更新进度条
+                    if pbar:
+                        pbar.update(1)
+                        # 更新 postfix 显示每个模型的进度
+                        postfix = {}
+                        for wc in self.worker_configs:
+                            postfix[f"{wc['name']}✓"] = progress[wc["name"]]["success"]
+                        postfix["✗"] = sum(p["failed"] for p in progress.values())
+                        pbar.set_postfix(postfix)
+
+                # 日志输出
+                note_id = self._extract_note_id(file)
+                if result["success"]:
+                    logger.info(
+                        f"[Worker {name}] ✓ {note_id}: "
+                        f"标题={result.get('title', 'N/A')}, "
+                        f"分类={result.get('kb', 'N/A')}"
+                    )
+                else:
+                    logger.error(
+                        f"[Worker {name}] ✗ {note_id}: {result.get('error', '未知错误')}"
+                    )
 
 
 # =============================================================================
