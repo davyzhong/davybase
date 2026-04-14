@@ -4,18 +4,20 @@
 
 受 [Karpathy 的个人知识库 wiki 方案](https://karpathy.ai/llmcookbook/) 启发，Davybase 帮助你将被困在 get 笔记 APP 中的知识自动化导出，编译为带双向链接的结构化 wiki，最终发布到 Obsidian。
 
-**v4.0 新特性**: 并发管线架构，支持多 LLM 负载均衡和 ~76% 时间节省！
+**v4.2 新特性**: Worker 池模式、Provider 级别限流控制、模型级进度追踪！
+
+**v4.0 核心架构**: 并发管线、多 LLM 负载均衡、~76% 时间节省！
 
 ## 快速开始
 
-### 方式 1: 并发 CLI (推荐 - v4.0)
+### 方式 1: 并发 CLI (推荐 - v4.2)
 
 ```bash
 # 并发抽取 (concurrency=3)
 python main.py ingest --batch-size 20 --concurrency 3 --resume
 
-# 并发消化 (concurrency=5, 多 LLM 轮询)
-python main.py digest --concurrency 5 --provider-rotation round_robin --apply
+# 并发消化 (Worker 池模式，自动限流控制)
+python main.py digest --apply
 
 # 并发编译 (2 批次并发，不同批次使用不同 LLM)
 python main.py compile --kb-dir processed/编程+AI/ --concurrent-batches 2
@@ -23,6 +25,12 @@ python main.py compile --kb-dir processed/编程+AI/ --concurrent-batches 2
 # 一键执行全量管道
 python main.py pipeline --full --resume
 ```
+
+**Worker 池模式说明**:
+- 3 个 Worker 同时处理（千问、智谱、MiniMax 各一个）
+- 每个 Worker 独立领取任务，处理完立即领取下一批
+- 自动限流控制：智谱 60s 间隔，千问/MiniMax 3s 间隔
+- 实时进度追踪：显示每个模型的 ✓/✗ 计数
 
 ### 方式 2: AI Native (MCP + Skills)
 
@@ -69,18 +77,28 @@ python main.py status
 
 ## 功能特性
 
-- **并发管线架构** (v4.0): 支持分批次、并发执行，~76% 时间节省
-- **多 LLM 负载均衡**: 轮询分配智谱和 MiniMax，减少单点限流影响
-- **AI Native 架构** (v3.0): 支持自然语言交互，无需记忆命令
-- **MCP 协议**: 标准 Model Context Protocol，可与其他 AI 工具集成
-- **Claude Skills**: 预定义技能，一键执行复杂任务
-- **定时自动执行**: Claude Cron 调度，每日自动更新知识库
-- **四阶段管线**: 摄取 → 消化 → 编译 → 发布，各司其职
-- **多 LLM 支持**: 智谱 GLM5、MiniMax M2.7，可按需切换
-- **智能编译**: LLM 识别核心概念，聚合多条笔记为结构化 wiki 条目
-- **双链支持**: 自动生成 `[[双向链接]]` 和 frontmatter 标签
-- **幂等安全**: 所有操作可重复执行，自动跳过已处理项
-- **断点续传**: 支持从中断处恢复，不浪费 API 配额
+### v4.2 新增 (2026-04-14)
+
+- **Worker 池模式** - 真正的流水线作业，每个 LLM 独立 Worker，处理完立即领取下一批
+- **Provider 级别限流控制** - 每个 API 独立配置请求间隔，解决 TPM 配额差异问题
+- **动态批次调整** - 根据处理速度自动调整批次大小，触发限流时自动减半
+- **模型级进度追踪** - 实时显示每个模型的 ✓/✗ 计数和性能统计
+- **限流缓解策略** - 加权轮询、批次衰减、冷却时间，多层防护避免 API 封禁
+
+### v4.0 核心架构 (2026-04-13)
+
+- **并发管线架构** - 分批次、并发执行，~76% 时间节省
+- **多 LLM 负载均衡** - 轮询分配智谱、千问、MiniMax，减少单点限流影响
+- **AI Native 架构** (v3.0) - 支持自然语言交互，无需记忆命令
+- **MCP 协议** - 标准 Model Context Protocol，可与其他 AI 工具集成
+- **Claude Skills** - 预定义技能，一键执行复杂任务
+- **定时自动执行** - Claude Cron 调度，每日自动更新知识库
+- **四阶段管线** - 摄取 → 消化 → 编译 → 发布，各司其职
+- **多 LLM 支持** - 智谱 GLM5、千问 Qwen、MiniMax M2.7，可按需切换
+- **智能编译** - LLM 识别核心概念，聚合多条笔记为结构化 wiki 条目
+- **双链支持** - 自动生成 `[[双向链接]]` 和 frontmatter 标签
+- **幂等安全** - 所有操作可重复执行，自动跳过已处理项
+- **断点续传** - 支持从中断处恢复，不浪费 API 配额
 
 ## 架构图
 

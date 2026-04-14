@@ -1,5 +1,8 @@
 # Davybase 配置指南
 
+**版本**: v4.2  
+**更新日期**: 2026-04-14
+
 本文档说明 Davybase 的配置方法。
 
 ## 配置分层
@@ -18,6 +21,7 @@ Davybase 的配置分为两层：
 │  config.yaml（应用配置）                                  │
 │  - vault_path, data_path, logs_path                     │
 │  - compiler 配置                                         │
+│  - pipeline 配置（并发管线 v4.0）                        │
 │  - sync 配置                                             │
 └─────────────────────────────────────────────────────────┘
                           ↓
@@ -201,18 +205,159 @@ python main.py quota
 
 ---
 
-## 5. 配置文件版本
+## 5. pipeline 并发管线配置 (v4.0/v4.2)
+
+`config.yaml` 中的 `pipeline` 配置控制并发管线行为。
+
+### 5.1 完整配置示例
+
+```yaml
+pipeline:
+  # 阶段 1: 摄取（Ingest）- 从 get 笔记 API 抽取原始笔记
+  ingest:
+    enabled: true
+    batch_size: 10          # 单批次最大抽取数量
+    concurrency: 2          # 并发请求数（推荐 1-3，过高会触发 API 限流）
+    rate_limit_delay: 2.0   # API 请求间隔（秒）
+    page_delay: 3.0         # 分页请求间隔（秒）
+    resume: true            # 默认断点续传
+
+  # 阶段 2: 消化（Digest）- 生成标题、分类、移动
+  digest:
+    enabled: true
+    worker_mode: pool           # pool=Worker 池模式，batch=批次模式
+    workers:                    # Worker 池模式配置（每个 Worker 独立领取任务）
+      - name: qwen
+        provider: qwen
+        batch_size: 2
+      - name: zhipu
+        provider: zhipu
+        batch_size: 1           # 智谱 TPM 配额低，降至 1
+      - name: minimax
+        provider: minimax
+        batch_size: 2
+    
+    # Provider 级别请求间隔配置（秒）
+    provider_rate_limit_delays:
+      zhipu: 60.0      # 智谱 TPM 配额低，需 60 秒间隔
+      qwen: 3.0        # 千问配额充足，3 秒足够
+      minimax: 3.0     # MiniMax 配额充足，3 秒足够
+    
+    batch_size: 10          # 批次模式使用
+    concurrency: 3          # 批次模式使用
+    provider_rotation: weighted  # 加权轮询
+    apply: false            # 预览模式=false
+    limit: null             # null=全部
+
+  # 阶段 3: 编译（Compile）- 聚合笔记为 Wiki 条目
+  compile:
+    enabled: true
+    batch_size: 5           # 单批次笔记数量
+    concurrent_batches: 1   # 同时编译的批次数量（推荐 1-2）
+    provider_rotation: round_robin
+    threshold: 3            # 触发编译的最小笔记数
+```
+
+### 5.2 Provider 级别限流控制 (v4.2)
+
+**背景**: 不同 LLM API 的 TPM（Tokens Per Minute）配额差异很大，需要独立配置请求间隔。
+
+| Provider | 推荐间隔 | 理由 |
+|----------|---------|------|
+| zhipu | 60.0s | TPM 配额约 100-200 tokens/分钟，每次 digest 约 100 tokens |
+| qwen | 3.0s | 配额充足，3 秒足够恢复 |
+| minimax | 3.0s | 配额充足，3 秒足够恢复 |
+
+**配置方法**:
+```yaml
+digest:
+  provider_rate_limit_delays:
+    zhipu: 60.0
+    qwen: 3.0
+    minimax: 3.0
+```
+
+### 5.3 Worker 池模式配置 (v4.2)
+
+**worker_mode: pool** - 真正的流水线作业，每个模型独立 Worker：
+
+```yaml
+digest:
+  worker_mode: pool
+  workers:
+    - name: qwen
+      provider: qwen
+      batch_size: 2       # 每次处理 2 条
+    - name: zhipu
+      provider: zhipu
+      batch_size: 1       # 智谱配额低，降至 1
+    - name: minimax
+      provider: minimax
+      batch_size: 2
+```
+
+**worker_mode: batch** - 批次模式（v4.0 默认）：
+
+```yaml
+digest:
+  worker_mode: batch
+  batch_size: 10
+  concurrency: 3
+  provider_rotation: round_robin
+```
+
+### 5.4 参数说明
+
+#### Ingest 阶段
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `batch_size` | int | 10 | 单批次最大抽取数量 |
+| `concurrency` | int | 2 | 并发请求数，**推荐 1-3** |
+| `rate_limit_delay` | float | 2.0 | API 请求间隔（秒） |
+| `page_delay` | float | 3.0 | 分页请求间隔（秒） |
+| `resume` | bool | true | 断点续传 |
+
+#### Digest 阶段
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `worker_mode` | string | pool | `pool`=Worker 池模式，`batch`=批次模式 |
+| `workers` | list | 见上 | Worker 池模式配置 |
+| `provider_rate_limit_delays` | object | 见上 | Provider 级别请求间隔 |
+| `batch_size` | int | 10 | 批次模式使用 |
+| `concurrency` | int | 3 | 批次模式使用 |
+| `provider_rotation` | string | weighted | `single`/`round_robin`/`weighted`/`dual` |
+| `apply` | bool | false | 直接执行移动 |
+| `limit` | int/null | null | 限制处理数量 |
+
+#### Compile 阶段
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `batch_size` | int | 5 | 单批次笔记数量 |
+| `concurrent_batches` | int | 1 | 同时编译的批次数量 |
+| `provider_rotation` | string | round_robin | LLM 分配策略 |
+| `threshold` | int | 3 | 触发编译的最小笔记数 |
+
+---
+
+## 6. 配置文件版本
 
 | 版本 | 日期 | 变更说明 |
 |------|------|----------|
 | 1.0 | 2026-04-11 | 初始版本 |
 | 2.0 | 2026-04-12 | 引入 secrets.yaml 集中管理密钥 |
+| 4.0 | 2026-04-13 | 新增 pipeline 并发管线配置 |
+| 4.2 | 2026-04-14 | 新增 provider_rate_limit_delays 和 Worker 池模式 |
 
 ---
 
-## 6. 相关文档
+## 7. 相关文档
 
 - [README.md](../README.md) - 项目概述和快速开始
 - [SECRETS_SETUP.md](SECRETS_SETUP.md) - 密钥配置详细指南
 - [USAGE.md](USAGE.md) - 详细使用指南
 - [ARCHITECTURE.md](ARCHITECTURE.md) - 系统架构说明
+- [PIPELINE_CONFIG.md](PIPELINE_CONFIG.md) - 管线配置详细指南
+- [RATE_LIMIT_TROUBLESHOOTING.md](RATE_LIMIT_TROUBLESHOOTING.md) - 限流故障排查

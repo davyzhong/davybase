@@ -1,5 +1,8 @@
 # Davybase 使用指南
 
+**版本**: v4.2  
+**更新日期**: 2026-04-14
+
 详细的 Davybase 使用说明和常见工作流。
 
 ## 快速开始
@@ -12,7 +15,7 @@ cp .env.example .env
 
 # 编辑 .env 文件，填入你的 API 密钥
 # - get 笔记 API 凭据：运行 /note config 获取
-# - LLM API 密钥：从智谱 AI 或 MiniMax 平台获取
+# - LLM API 密钥：从智谱 AI、千问或 MiniMax 平台获取
 ```
 
 ### 2. 安装依赖
@@ -31,21 +34,53 @@ python main.py status
 python main.py quota
 ```
 
-### 4. 运行全量同步
+### 4. 运行全量管道（推荐）
 
 ```bash
-# 使用智谱 GLM5 进行全量同步
-python main.py full-sync --provider zhipu
+# 使用并发管线进行全量同步
+python main.py pipeline --full --resume
+```
 
-# 或使用 MiniMax M2.7
-python main.py full-sync --provider minimax
+**或者分阶段执行**:
+
+```bash
+# 阶段 1: 并发抽取
+python main.py ingest --batch-size 20 --concurrency 3 --resume
+
+# 阶段 2: 并发消化（Worker 池模式）
+python main.py digest --apply
+
+# 阶段 3: 并发编译
+python main.py compile --kb-dir processed/ --concurrent-batches 2
 ```
 
 ---
 
 ## 常见工作流
 
-### 全量同步 (Full Sync)
+### v4.2 并发管线工作流（推荐）
+
+**全量管道**:
+```bash
+python main.py pipeline --full --resume
+```
+
+**分阶段执行**:
+
+```bash
+# 阶段 1: 并发抽取（100 条笔记约 2-3 分钟）
+python main.py ingest --batch-size 20 --concurrency 2 --resume
+
+# 阶段 2: 并发消化（Worker 池模式，50 条笔记约 5-8 分钟）
+python main.py digest --apply
+
+# 阶段 3: 并发编译（20 个 Wiki 条目约 3-5 分钟）
+python main.py compile --kb-dir processed/ --concurrent-batches 2
+```
+
+### 传统工作流（v3.0，仍可用）
+
+#### 全量同步 (Full Sync)
 
 首次使用或需要完全重建 Wiki 时使用：
 
@@ -61,7 +96,7 @@ python main.py full-sync --provider zhipu
 
 **预计耗时：** 取决于笔记数量，约 10-30 分钟
 
-### 增量同步 (Incremental Sync)
+#### 增量同步 (Incremental Sync)
 
 日常使用，仅同步新增或修改的笔记：
 
@@ -79,7 +114,7 @@ python main.py incremental
 python main.py incremental --resume
 ```
 
-### 仅编译模式
+#### 仅编译模式
 
 如果已有原始笔记，仅需 LLM 编译：
 
@@ -87,7 +122,7 @@ python main.py incremental --resume
 python main.py compile-only --provider zhipu
 ```
 
-### 预览模式
+#### 预览模式
 
 测试配置，不实际写入文件：
 
@@ -99,11 +134,39 @@ python main.py full-sync --dry-run
 
 ## 命令行参数
 
-### 全局参数
+### v4.2 并发管线命令
+
+| 命令 | 说明 | 主要参数 |
+|------|------|---------|
+| `ingest` | 并发抽取笔记 | `--batch-size`, `--concurrency`, `--resume` |
+| `digest` | 并发消化笔记 | `--apply`, `--limit`, `--worker-mode` |
+| `compile` | 并发编译 Wiki | `--kb-dir`, `--concurrent-batches` |
+| `pipeline` | 一键全量管道 | `--full`, `--resume` |
+
+### 命令示例
+
+```bash
+# 并发抽取（推荐配置）
+python main.py ingest --batch-size 20 --concurrency 2 --resume
+
+# 并发消化（Worker 池模式）
+python main.py digest --apply
+
+# 并发消化（限制处理 50 条测试）
+python main.py digest --limit 50 --apply
+
+# 并发编译（2 批次并发）
+python main.py compile --kb-dir processed/编程+AI/ --concurrent-batches 2
+
+# 全量管道
+python main.py pipeline --full --resume
+```
+
+### 传统命令（仍可用）
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `--provider <name>` | LLM 提供商 (zhipu/minimax) | config.yaml 中的 default_provider |
+| `--provider <name>` | LLM 提供商 (zhipu/minimax/qwen) | config.yaml 中的 default_provider |
 | `--batch-size <N>` | 单批次处理笔记数 | 15 |
 | `--resume` | 从中断处恢复 | false |
 | `--dry-run` | 预览模式，不实际写入 | false |
@@ -128,6 +191,36 @@ python main.py incremental --resume
 ---
 
 ## 故障排查
+
+### v4.2 限流故障
+
+**详细排查指南**: 见 [RATE_LIMIT_TROUBLESHOOTING.md](RATE_LIMIT_TROUBLESHOOTING.md)
+
+**快速诊断**:
+
+```bash
+# 查看限流日志
+grep "触发限流" logs/*.log
+
+# 查看模型级统计
+grep "模型级统计" logs/digest.log -A 10
+```
+
+**智谱 API 限流解决方案**:
+```yaml
+# config.yaml
+pipeline:
+  digest:
+    workers:
+      - name: zhipu
+        batch_size: 1       # 降至 1
+    provider_rate_limit_delays:
+      zhipu: 60.0           # 增至 60 秒
+
+llm:
+  weights:
+    zhipu: 0.05             # 降至 5%
+```
 
 ### 常见问题
 
@@ -268,8 +361,33 @@ python main.py full-sync
 
 **A:** 
 目前支持：
-- **智谱 GLM5** (`zhipu`) - 默认，通用场景
-- **MiniMax M2.7** (`minimax`) - 中文理解更好，降级选择
+- **智谱 GLM5** (`zhipu`) - 通用场景，但 TPM 配额低（需 60s 间隔）
+- **千问 Qwen** (`qwen`) - 中文理解好，配额充足（推荐主力）
+- **MiniMax M2.7** (`minimax`) - 代码理解好，配额充足（推荐主力）
+
+### Q: Worker 池模式 vs 批次模式有什么区别？
+
+**A:**
+- **Worker 池模式** (v4.2 推荐): 每个模型独立 Worker，处理完立即领取下一批，真正的流水线作业
+- **批次模式** (v4.0): 预先分批次，批次间等待，非真正流水线
+
+**推荐配置**:
+```yaml
+digest:
+  worker_mode: pool  # Worker 池模式
+```
+
+### Q: 智谱 API 频繁触发限流怎么办？
+
+**A:** 
+这是智谱 GLM-5 TPM 配额极低（~100-200 tokens/分钟）导致的。解决方案：
+
+1. **降低批次大小**: `batch_size: 1`
+2. **增加延迟**: `provider_rate_limit_delays.zhipu: 60.0`
+3. **降低权重**: `llm.weights.zhipu: 0.05`
+4. **使用加权轮询**: `provider_rotation: weighted`
+
+详见 [RATE_LIMIT_TROUBLESHOOTING.md](RATE_LIMIT_TROUBLESHOOTING.md)
 
 ---
 
@@ -278,3 +396,6 @@ python main.py full-sync
 - [README.md](../README.md) - 项目概述和快速开始
 - [CONFIGURATION.md](CONFIGURATION.md) - 配置指南
 - [ARCHITECTURE.md](ARCHITECTURE.md) - 系统架构说明
+- [PIPELINE_CONFIG.md](PIPELINE_CONFIG.md) - 管线配置详细指南
+- [RATE_LIMIT_TROUBLESHOOTING.md](RATE_LIMIT_TROUBLESHOOTING.md) - 限流故障排查
+- [WORKER_POOL_IMPLEMENTATION.md](WORKER_POOL_IMPLEMENTATION.md) - Worker 池模式实施文档
