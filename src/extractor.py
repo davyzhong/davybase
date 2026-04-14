@@ -16,9 +16,10 @@ class GetNoteClient:
 
     BASE_URL = "https://openapi.biji.com"
 
-    def __init__(self, api_key: str, client_id: str):
+    def __init__(self, api_key: str, client_id: str, rate_limit_delay: float = 2.0):
         self.api_key = api_key
         self.client_id = client_id
+        self.rate_limit_delay = rate_limit_delay  # 可配置请求间隔
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self):
@@ -36,28 +37,36 @@ class GetNoteClient:
         await self._client.aclose()
 
     async def _get(self, path: str, params: dict = None) -> dict:
-        # 速率限制：请求间隔 >= 1 秒
-        await asyncio.sleep(1.0)
+        # 速率限制：请求间隔可配置（默认 2 秒）
+        await asyncio.sleep(self.rate_limit_delay)
 
         # 429 限流重试策略
-        max_retries = 3
+        max_retries = 5
         for attempt in range(max_retries):
             try:
                 response = await self._client.get(path, params=params)
                 if response.status_code == 429:
-                    retry_after = int(response.headers.get("Retry-After", 60))
-                    logger.warning(f"触发限流，等待 {retry_after} 秒")
+                    retry_after = int(response.headers.get("Retry-After", 120))
+                    logger.warning(f"触发限流，等待 {retry_after} 秒（第 {attempt+1}/{max_retries} 次重试）")
                     await asyncio.sleep(retry_after)
                     continue
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < max_retries - 1:
-                    retry_after = int(e.response.headers.get("Retry-After", 60))
-                    logger.warning(f"触发限流，等待 {retry_after} 秒")
+                    retry_after = int(e.response.headers.get("Retry-After", 120))
+                    logger.warning(f"触发限流，等待 {retry_after} 秒（第 {attempt+1}/{max_retries} 次重试）")
                     await asyncio.sleep(retry_after)
                 else:
                     raise
+            except httpx.ReadTimeout as e:
+                if attempt < max_retries - 1:
+                    retry_after = 30 * (2 ** attempt)
+                    logger.warning(f"读取超时，等待 {retry_after} 秒后重试（第 {attempt+1}/{max_retries} 次）")
+                    await asyncio.sleep(retry_after)
+                else:
+                    raise RuntimeError(f"API 调用失败：超过最大重试次数（最后错误：读取超时）")
+        raise RuntimeError("API 调用失败：超过最大重试次数")
 
     async def list_knowledge_bases(self) -> list:
         """获取知识库列表"""

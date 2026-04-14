@@ -50,10 +50,10 @@ async def test_fetch_knowledge_notes(fixtures):
             assert notes[0]["note_id"] == "1001"
 
 @pytest.mark.asyncio
-async def test_extractor_saves_raw_notes(fixtures, temp_data_dir):
+async def test_extractor_saves_raw_notes(fixtures, temp_data_dir, monkeypatch):
     with patch("httpx.AsyncClient") as MockClient:
         mock_client = AsyncMock()
-        # 模拟所有 API 调用：知识库列表 + 2 个知识库的笔记列表 + 3 条笔记详情
+        # 模拟所有 API 调用：知识库列表 + 2 个知识库的笔记列表 + 3 条笔记详情 + 散落笔记列表
         mock_client.get = AsyncMock(side_effect=[
             make_mock_response(fixtures["knowledge_list"]),
             make_mock_response(fixtures["knowledge_notes_kb1"]),
@@ -61,15 +61,26 @@ async def test_extractor_saves_raw_notes(fixtures, temp_data_dir):
             make_mock_response(fixtures["note_detail_1002"]),
             make_mock_response(fixtures["note_detail_1003"]),
             make_mock_response(fixtures["knowledge_notes_kb2"]),
+            make_mock_response({"data": {"notes": [], "has_more": False}}),  # 散落笔记列表
         ])
         mock_client.aclose = AsyncMock()
         MockClient.return_value = mock_client
 
-        extractor = Extractor("test_key", "test_client_id", str(temp_data_dir))
+        # Mock Config to return test credentials
+        from src.config import Config
+        original_init = Config.__init__
+        def mock_config_init(self):
+            original_init(self)
+            self._getnote_api_key = "test_key"
+            self._getnote_client_id = "test_client_id"
+        monkeypatch.setattr(Config, "__init__", mock_config_init)
+
+        config = Config()
+        extractor = Extractor(config, str(temp_data_dir))
         await extractor.run()
 
-        raw_dir = temp_data_dir / "raw" / "深度学习"
+        raw_dir = temp_data_dir / "深度学习"
         assert raw_dir.exists()
-        assert (raw_dir / "1001.md").exists()
-        assert (raw_dir / "1002.md").exists()
-        assert (raw_dir / "1003.md").exists()
+        assert (raw_dir / "反向传播.md").exists()
+        assert (raw_dir / "梯度下降.md").exists()
+        assert (raw_dir / "Transformer.md").exists()

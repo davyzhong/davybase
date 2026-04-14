@@ -78,6 +78,7 @@ llm:
 |------|------|--------|------|
 | `worker_mode` | string | batch | Worker 模式：`batch`（批次模式）\| `pool`（Worker 池模式） |
 | `workers` | list | 见下方 | Worker 池模式配置（每个 Worker 独立领取任务） |
+| `dynamic_batch` | object | 见下方 | 动态批次调整配置（根据处理速度自动调整） |
 | `batch_size` | int | 10 | 单批次处理数量（批次模式使用） |
 | `concurrency` | int | 3 | 并发任务数，**推荐 1-5**（批次模式使用） |
 | `provider_rotation` | string | round_robin | LLM 分配策略：`single` \| `round_robin` \| `weighted` \| `dual`（批次模式使用） |
@@ -102,16 +103,36 @@ pipeline:
         batch_size: 2
 ```
 
+**动态批次配置 (dynamic_batch)**:
+
+```yaml
+pipeline:
+  digest:
+    dynamic_batch:
+      enabled: true             # 是否启用动态批次调整
+      strategy: threshold       # threshold=阈值模式（稳健），aggressive=激进模式
+      min_batch_size: 1         # 最小批次大小
+      max_batch_size: 8         # 最大批次大小（避免触发限流）
+      adjustment_window: 10     # 滑动窗口大小（最近 N 次处理）
+      speed_threshold: 1.2      # 速度超过平均 20% 才增加批次
+      rate_limit_decay: 0.5     # 限流时批次衰减系数（0.5=减半）
+      cooldown_seconds: 30.0    # 批次调整冷却时间（秒）
+```
+
+**动态批次调整策略**:
+- **threshold（推荐）**: 稳健模式，速度超过平均 20% 才增加批次，适合生产环境
+- **aggressive**: 激进模式，速度快就增加，慢就减少，适合配额充足的场景
+
+**限流场景下的行为**:
+- 触发限流 → 批次立即减半（或减少 2，激进模式）
+- 连续成功 → 根据速度逐步恢复批次
+- 冷却时间 30 秒内不调整（避免频繁抖动）
+
 **Worker 池模式特点**:
 - 每个模型独立 Worker，真正的流水线作业
 - 处理完立即领取下一批，无批次间等待
 - 实时进度追踪，显示每个模型的 ✓/✗ 计数
-
-**LLM 分配策略** (批次模式):
-- `single`: 始终使用首选 LLM（调试用）
-- `round_robin`: 轮询分配（qwen → minimax → zhipu → ...）
-- `weighted`: 按权重分配（qwen 50%, minimax 40%, zhipu 10%）
-- `dual`: 双模型负载均衡（qwen 50%, minimax 50%，避开智谱）
+- 动态批次调整，根据模型表现自动分配负载
 
 ### 阶段 3: 编译 (Compile)
 

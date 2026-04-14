@@ -14,6 +14,7 @@ class Config:
         self.secrets_path = Path(secrets_path)
         self._config: dict = {}
         self._secrets: dict = {}
+        self.raw_config: dict = {}  # 保留原始配置用于 pipeline 读取
         self.load()
 
     def load(self):
@@ -22,6 +23,7 @@ class Config:
         if self.config_path.exists():
             with open(self.config_path, encoding="utf-8") as f:
                 self._config = yaml.safe_load(f) or {}
+                self.raw_config = self._config.copy()  # 保留原始配置
 
         # 加载密钥配置
         if self.secrets_path.exists():

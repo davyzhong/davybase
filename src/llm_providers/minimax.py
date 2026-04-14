@@ -52,8 +52,8 @@ class MiniMaxProvider(LLMProvider):
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                # 增加超时时间：2 分钟读取超时
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0)) as client:
+                # 增加超时时间：编译任务需要更长时间（10 分钟读取超时）
+                async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=600.0)) as client:
                     response = await client.post(
                         self.BASE_URL,
                         headers={

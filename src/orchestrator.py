@@ -43,6 +43,7 @@ except ImportError:
     tqdm = None
 from src.llm_providers.qwen import QwenProvider
 from src.writer import Writer
+from src.dynamic_batch import DynamicBatchScheduler
 
 logger = logging.getLogger("davybase.orchestrator")
 
@@ -360,6 +361,26 @@ class DigestOrchestrator:
         self.default_provider_rotation = pipeline_config.get('provider_rotation', 'round_robin')
         self.default_apply = pipeline_config.get('apply', False)
         self.default_limit = pipeline_config.get('limit')
+
+        # 动态批次配置
+        dynamic_batch_config = pipeline_config.get('dynamic_batch', {})
+        self.dynamic_batch_enabled = dynamic_batch_config.get('enabled', False)
+        self.batch_scheduler = None
+        if self.dynamic_batch_enabled:
+            self.batch_scheduler = DynamicBatchScheduler(
+                worker_configs=self.worker_configs,
+                strategy=dynamic_batch_config.get('strategy', 'threshold'),
+                min_batch_size=dynamic_batch_config.get('min_batch_size', 1),
+                max_batch_size=dynamic_batch_config.get('max_batch_size', 10),
+                adjustment_window=dynamic_batch_config.get('adjustment_window', 10),
+                speed_threshold=dynamic_batch_config.get('speed_threshold', 1.2),
+                rate_limit_decay=dynamic_batch_config.get('rate_limit_decay', 0.5),
+                cooldown_seconds=dynamic_batch_config.get('cooldown_seconds', 30.0),
+            )
+            logger.info(
+                f"动态批次调整已启用 (strategy={dynamic_batch_config.get('strategy', 'threshold')}, "
+                f"max_batch={dynamic_batch_config.get('max_batch_size', 10)})"
+            )
 
         # 初始化 LLM 提供商
         self.providers = {
@@ -789,7 +810,8 @@ class DigestOrchestrator:
             name = worker_config["name"]
             provider_name = worker_config["provider"]
             provider = self.providers[provider_name]
-            batch_size = worker_config.get("batch_size", 2)
+            # 从调度器获取初始批次大小
+            batch_size = self.batch_scheduler.get_batch_size(name) if self.batch_scheduler else worker_config.get("batch_size", 2)
 
             task = asyncio.create_task(
                 self._worker(
@@ -800,7 +822,8 @@ class DigestOrchestrator:
                     apply=apply,
                     progress=progress,
                     progress_lock=progress_lock,
-                    pbar=pbar
+                    pbar=pbar,
+                    worker_name=name
                 )
             )
             workers.append(task)
@@ -811,6 +834,11 @@ class DigestOrchestrator:
         # 关闭进度条
         if pbar:
             pbar.close()
+
+        # 输出动态批次状态
+        if self.batch_scheduler:
+            status = self.batch_scheduler.get_status()
+            logger.info(f"动态批次状态：{status}")
 
         # 聚合结果
         total_processed = sum(p["processed"] for p in progress.values())
@@ -836,15 +864,19 @@ class DigestOrchestrator:
         apply: bool,
         progress: Dict,
         progress_lock: asyncio.Lock,
-        pbar
+        pbar,
+        worker_name: str
     ) -> None:
-        """Worker 协程：从队列领取任务，处理完立即领取下一批"""
-        logger.info(f"[Worker {name}] 启动，批次大小={batch_size}")
+        """Worker 协程：从队列领取任务，处理完立即领取下一批（支持动态批次）"""
+        logger.info(f"[Worker {name}] 启动，初始批次大小={batch_size}")
 
         while True:
-            # 领取一批笔记（batch_size 条）
+            # 获取动态批次大小（如果启用）
+            current_batch_size = self.batch_scheduler.get_batch_size(name) if self.batch_scheduler else batch_size
+
+            # 领取一批笔记（current_batch_size 条）
             batch = []
-            for _ in range(batch_size):
+            for _ in range(current_batch_size):
                 try:
                     file = task_queue.get_nowait()
                     batch.append(file)
@@ -856,17 +888,28 @@ class DigestOrchestrator:
                 logger.info(f"[Worker {name}] 队列为空，退出")
                 return
 
-            # 处理本批次
+            # 处理本批次（带计时）
+            start_time = time.time()
+            batch_success = 0
+            batch_rate_limit = False
+
             for file in batch:
                 result = await self._digest_single_file(file, provider, apply)
+
+                # 检查是否触发限流
+                if "rate_limit" in str(result.get("error", "")).lower() or "限流" in str(result.get("error", "")):
+                    batch_rate_limit = True
 
                 # 更新进度
                 async with progress_lock:
                     progress[name]["processed"] += 1
                     if result["success"]:
                         progress[name]["success"] += 1
+                        batch_success += 1
                     else:
                         progress[name]["failed"] += 1
+                        if self.batch_scheduler:
+                            self.batch_scheduler.record_failure(name)
 
                     # 更新进度条
                     if pbar:
@@ -890,6 +933,14 @@ class DigestOrchestrator:
                     logger.error(
                         f"[Worker {name}] ✗ {note_id}: {result.get('error', '未知错误')}"
                     )
+
+            # 本批次处理完成，通知调度器调整批次
+            duration = time.time() - start_time
+            if self.batch_scheduler and batch_success > 0:
+                if batch_rate_limit:
+                    self.batch_scheduler.record_rate_limit(name)
+                else:
+                    self.batch_scheduler.record_success(name, batch_success, duration)
 
 
 # =============================================================================

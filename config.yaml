@@ -47,13 +47,25 @@ pipeline:
     workers:                    # Worker 池模式配置（每个 Worker 独立领取任务）
       - name: qwen
         provider: qwen
-        batch_size: 2           # 每次处理 2 条
+        batch_size: 2           # 每次处理 2 条（初始值）
       - name: zhipu
         provider: zhipu
         batch_size: 2
       - name: minimax
         provider: minimax
         batch_size: 2
+
+    # 动态批次配置（根据处理速度自动调整）
+    dynamic_batch:
+      enabled: true             # 是否启用动态批次调整
+      strategy: threshold       # threshold=阈值模式（稳健），aggressive=激进模式
+      min_batch_size: 1         # 最小批次大小
+      max_batch_size: 8         # 最大批次大小（避免触发限流）
+      adjustment_window: 10     # 滑动窗口大小（最近 N 次处理）
+      speed_threshold: 1.2      # 速度超过平均 20% 才增加批次
+      rate_limit_decay: 0.5     # 限流时批次衰减系数（0.5=减半）
+      cooldown_seconds: 30.0    # 批次调整冷却时间（秒）
+
     batch_size: 10          # 单批次处理数量（批次模式使用）
     concurrency: 3          # 并发任务数（批次模式使用，推荐 1-5）
     provider_rotation: round_robin  # 多 LLM 分配策略：single|round_robin|weighted|dual（批次模式使用）

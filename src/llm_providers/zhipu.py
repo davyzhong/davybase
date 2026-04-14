@@ -52,8 +52,8 @@ class ZhipuProvider(LLMProvider):
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                # 增加超时时间：2 分钟读取超时
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0)) as client:
+                # 增加超时时间：编译任务需要更长时间（10 分钟读取超时）
+                async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=600.0)) as client:
                     response = await client.post(
                         self.BASE_URL,
                         headers={
@@ -63,8 +63,8 @@ class ZhipuProvider(LLMProvider):
                         json={"model": self.MODEL, "messages": messages, **kwargs},
                     )
                     if response.status_code == 429:
-                        # 指数退避：10s, 20s, 40s, 60s, 60s
-                        retry_after = min(60, 10 * (2 ** attempt))
+                        # 指数退避：30s, 60s, 120s, 240s, 300s（5 分钟）
+                        retry_after = min(300, 30 * (2 ** attempt))
                         logger.warning(f"智谱 API 触发限流，等待 {retry_after} 秒（第 {attempt+1}/{max_retries} 次重试）")
                         await asyncio.sleep(retry_after)
                         continue
@@ -73,14 +73,14 @@ class ZhipuProvider(LLMProvider):
                     return data["choices"][0]["message"]["content"]
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < max_retries - 1:
-                    retry_after = min(60, 10 * (2 ** attempt))
+                    retry_after = min(300, 30 * (2 ** attempt))
                     logger.warning(f"智谱 API 触发限流，等待 {retry_after} 秒（第 {attempt+1}/{max_retries} 次重试）")
                     await asyncio.sleep(retry_after)
                 else:
                     raise
             except httpx.ReadTimeout as e:
                 if attempt < max_retries - 1:
-                    retry_after = min(60, 30 * (2 ** attempt))
+                    retry_after = min(300, 60 * (2 ** attempt))  # 60s, 120s, 240s, 300s, 300s
                     logger.warning(f"智谱 API 读取超时，等待 {retry_after} 秒后重试（第 {attempt+1}/{max_retries} 次）")
                     await asyncio.sleep(retry_after)
                 else:
