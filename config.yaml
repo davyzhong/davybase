@@ -57,10 +57,11 @@ pipeline:
 
     # Provider 级别请求间隔配置（秒）
     # 用于解决不同 API 的限流问题，特别是智谱 TPM 配额较低的场景
+    # 智谱 GLM-5: TPM 配额约 100-200 tokens/分钟，每次 digest 请求约 100 tokens，需 60s 恢复
     provider_rate_limit_delays:
-      zhipu: 60.0      # 智谱 TPM 配额非常低，需要 60 秒间隔
-      qwen: 3.0
-      minimax: 3.0
+      zhipu: 60.0      # 智谱 TPM 配额低，需 60 秒间隔（实测 15s/30s 仍触发限流）
+      qwen: 3.0        # 千问配额充足，3 秒足够
+      minimax: 3.0     # MiniMax 配额充足，3 秒足够
 
     # 动态批次配置（根据处理速度自动调整）
     dynamic_batch:

@@ -911,7 +911,6 @@ class DigestOrchestrator:
         local_success = 0
         local_failed = 0
         local_rate_limit = 0
-        batch_times = []
 
         while True:
             # 获取动态批次大小（如果启用）
@@ -949,7 +948,6 @@ class DigestOrchestrator:
                 # 检查是否触发限流
                 if "rate_limit" in str(result.get("error", "")).lower() or "限流" in str(result.get("error", "")):
                     batch_rate_limit = True
-                    local_rate_limit += 1
 
                 # 更新进度
                 async with progress_lock:
@@ -993,8 +991,10 @@ class DigestOrchestrator:
 
             # 本批次处理完成，通知调度器调整批次
             duration = time.time() - start_time
-            batch_times.append(duration)
             progress[name]["total_time"] += duration
+            # 更新限流计数（批次级别）
+            if batch_rate_limit:
+                progress[name]["rate_limit_count"] += 1
             if self.batch_scheduler and batch_success > 0:
                 if batch_rate_limit:
                     self.batch_scheduler.record_rate_limit(name)
