@@ -202,6 +202,12 @@ type: wiki
 - **[CONFIGURATION.md](docs/CONFIGURATION.md)** - 完整配置指南（config.yaml、CLI 参数）
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - 系统架构（四阶段管线、模块设计、数据库结构）
 - **[USAGE.md](docs/USAGE.md)** - 使用指南（快速开始、常见工作流、故障排查）
+- **[PIPELINE_CONFIG.md](docs/PIPELINE_CONFIG.md)** - 管线配置详细指南
+- **[RATE_LIMIT_TROUBLESHOOTING.md](docs/RATE_LIMIT_TROUBLESHOOTING.md)** - 限流故障排查
+- **[WORKER_POOL_IMPLEMENTATION.md](docs/WORKER_POOL_IMPLEMENTATION.md)** - Worker 池模式实施文档
+- **[CONCURRENT_PIPELINE.md](docs/CONCURRENT_PIPELINE.md)** - 并发管线设计文档
+- **[MCP_SERVER_GUIDE.md](docs/MCP_SERVER_GUIDE.md)** - MCP Server 配置指南
+- **[CRON_SETUP.md](docs/CRON_SETUP.md)** - 定时任务配置指南
 
 ## 项目结构
 

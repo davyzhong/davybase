@@ -432,7 +432,7 @@ class PipelineStatus:
 # =============================================================================
 
 class LegacyProcessingStatus:
-    """兼容旧版 scripts/summarize_and_classify.py 的状态管理类"""
+    """兼容旧版处理状态文件格式的类"""
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
