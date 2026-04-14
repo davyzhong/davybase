@@ -800,9 +800,16 @@ class DigestOrchestrator:
         for f in files_to_process:
             await task_queue.put(f)
 
-        # 进度追踪（按模型分离）
+        # 进度追踪（按模型分离，增强版）
         progress = {
-            wc["name"]: {"processed": 0, "success": 0, "failed": 0}
+            wc["name"]: {
+                "processed": 0,
+                "success": 0,
+                "failed": 0,
+                "rate_limit_count": 0,
+                "total_time": 0.0,
+                "start_time": time.time(),
+            }
             for wc in self.worker_configs
         }
         progress_lock = asyncio.Lock()
@@ -853,7 +860,25 @@ class DigestOrchestrator:
         total_success = sum(p["success"] for p in progress.values())
         total_failed = sum(p["failed"] for p in progress.values())
 
-        logger.info(f"消化完成：处理 {total_processed} 条，成功 {total_success} 条，失败 {total_failed} 条")
+        # 输出详细的模型级统计
+        logger.info("=" * 60)
+        logger.info("消化完成 - 模型级统计")
+        logger.info("=" * 60)
+        for wc in self.worker_configs:
+            name = wc["name"]
+            p = progress[name]
+            avg_time = p["total_time"] / p["success"] if p["success"] > 0 else 0
+            success_rate = p["success"] / p["processed"] * 100 if p["processed"] > 0 else 0
+            logger.info(
+                f"  {name:10s}: {p['processed']:3d}条 | "
+                f"成功:{p['success']:3d} 失败:{p['failed']:3d} 限流:{p.get('rate_limit_count', 0):3d} | "
+                f"成功率:{success_rate:5.1f}% | "
+                f"耗时:{p['total_time']:6.1f}s | "
+                f"平均:{avg_time:6.2f}s/条"
+            )
+        logger.info("=" * 60)
+        logger.info(f"总计：处理 {total_processed} 条，成功 {total_success} 条，失败 {total_failed} 条")
+        logger.info("=" * 60)
 
         return {
             "total_processed": total_processed,
@@ -882,6 +907,12 @@ class DigestOrchestrator:
         provider_name = name  # worker name 与 provider name 一致
         rate_limit_delay = self.provider_rate_limit_delays.get(provider_name, 3.0)
 
+        # 本地统计
+        local_success = 0
+        local_failed = 0
+        local_rate_limit = 0
+        batch_times = []
+
         while True:
             # 获取动态批次大小（如果启用）
             current_batch_size = self.batch_scheduler.get_batch_size(name) if self.batch_scheduler else batch_size
@@ -897,7 +928,14 @@ class DigestOrchestrator:
                     break
 
             if not batch:
-                logger.info(f"[Worker {name}] 队列为空，退出")
+                # 输出本地统计日志
+                total_time = time.time() - progress[name]["start_time"]
+                avg_time = total_time / local_success if local_success > 0 else 0
+                logger.info(
+                    f"[Worker {name}] 退出 | "
+                    f"总计：{local_success + local_failed}条，成功：{local_success}，失败：{local_failed}，限流：{local_rate_limit} | "
+                    f"耗时：{total_time:.1f}s，平均：{avg_time:.2f}s/条"
+                )
                 return
 
             # 处理本批次（带计时）
@@ -911,6 +949,7 @@ class DigestOrchestrator:
                 # 检查是否触发限流
                 if "rate_limit" in str(result.get("error", "")).lower() or "限流" in str(result.get("error", "")):
                     batch_rate_limit = True
+                    local_rate_limit += 1
 
                 # 更新进度
                 async with progress_lock:
@@ -918,8 +957,10 @@ class DigestOrchestrator:
                     if result["success"]:
                         progress[name]["success"] += 1
                         batch_success += 1
+                        local_success += 1
                     else:
                         progress[name]["failed"] += 1
+                        local_failed += 1
                         if self.batch_scheduler:
                             self.batch_scheduler.record_failure(name)
 
@@ -936,7 +977,7 @@ class DigestOrchestrator:
                 # 日志输出
                 note_id = self._extract_note_id(file)
                 if result["success"]:
-                    logger.info(
+                    logger.debug(
                         f"[Worker {name}] ✓ {note_id}: "
                         f"标题={result.get('title', 'N/A')}, "
                         f"分类={result.get('kb', 'N/A')}"
@@ -952,6 +993,8 @@ class DigestOrchestrator:
 
             # 本批次处理完成，通知调度器调整批次
             duration = time.time() - start_time
+            batch_times.append(duration)
+            progress[name]["total_time"] += duration
             if self.batch_scheduler and batch_success > 0:
                 if batch_rate_limit:
                     self.batch_scheduler.record_rate_limit(name)
