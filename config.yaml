@@ -47,13 +47,20 @@ pipeline:
     workers:                    # Worker 池模式配置（每个 Worker 独立领取任务）
       - name: qwen
         provider: qwen
-        batch_size: 2           # 每次处理 2 条（初始值）
+        batch_size: 2           # 每次处理 2 条
       - name: zhipu
         provider: zhipu
-        batch_size: 2
+        batch_size: 1           # 智谱 TPM 配额低，降至 1
       - name: minimax
         provider: minimax
-        batch_size: 2
+        batch_size: 2           # 每次处理 2 条
+
+    # Provider 级别请求间隔配置（秒）
+    # 用于解决不同 API 的限流问题，特别是智谱 TPM 配额较低的场景
+    provider_rate_limit_delays:
+      zhipu: 60.0      # 智谱 TPM 配额非常低，需要 60 秒间隔
+      qwen: 3.0
+      minimax: 3.0
 
     # 动态批次配置（根据处理速度自动调整）
     dynamic_batch:
@@ -68,7 +75,7 @@ pipeline:
 
     batch_size: 10          # 单批次处理数量（批次模式使用）
     concurrency: 3          # 并发任务数（批次模式使用，推荐 1-5）
-    provider_rotation: round_robin  # 多 LLM 分配策略：single|round_robin|weighted|dual（批次模式使用）
+    provider_rotation: weighted  # 使用加权策略，优先分配给千问和 MiniMax
     apply: false            # 是否直接执行移动（预览模式=false）
     limit: null             # 限制处理数量（null=全部）
 
@@ -87,10 +94,11 @@ llm:
   # 轮询策略时的提供商顺序
   rotation_order: [qwen, minimax, zhipu]
   # 加权策略时的权重（总和不必为 1，会归一化）
+  # 方案 C：智谱 TPM 配额低，降低权重至 5%
   weights:
-    qwen: 0.5
-    minimax: 0.4
-    zhipu: 0.1
+    qwen: 0.45
+    minimax: 0.5
+    zhipu: 0.05
 
 sync:
   schedule: "0 6 * * *"   # 每天早上 6 点

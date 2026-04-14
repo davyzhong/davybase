@@ -78,12 +78,28 @@ llm:
 |------|------|--------|------|
 | `worker_mode` | string | batch | Worker 模式：`batch`（批次模式）\| `pool`（Worker 池模式） |
 | `workers` | list | 见下方 | Worker 池模式配置（每个 Worker 独立领取任务） |
+| `provider_rate_limit_delays` | object | 见下方 | Provider 级别请求间隔配置（秒），用于解决不同 API 的限流问题 |
 | `dynamic_batch` | object | 见下方 | 动态批次调整配置（根据处理速度自动调整） |
 | `batch_size` | int | 10 | 单批次处理数量（批次模式使用） |
 | `concurrency` | int | 3 | 并发任务数，**推荐 1-5**（批次模式使用） |
 | `provider_rotation` | string | round_robin | LLM 分配策略：`single` \| `round_robin` \| `weighted` \| `dual`（批次模式使用） |
 | `apply` | bool | false | 是否直接执行移动（false=预览模式） |
 | `limit` | int/null | null | 限制处理数量（null=全部） |
+
+**Provider 请求间隔配置 (provider_rate_limit_delays)**:
+
+```yaml
+pipeline:
+  digest:
+    provider_rate_limit_delays:
+      zhipu: 15.0      # 智谱 TPM 配额低，需要更长间隔
+      qwen: 3.0
+      minimax: 3.0
+```
+
+**说明**: 每个 LLM API 请求后等待指定的秒数，用于避免触发 TPM（Tokens Per Minute）限流。
+- **zhipu**: 智谱 GLM-5 TPM 配额较低，建议 15 秒以上
+- **qwen/minimax**: 配额较充足，3 秒即可
 
 **Worker 池模式配置 (worker_mode: pool)**:
 
@@ -247,6 +263,76 @@ python main.py digest --worker-mode batch --apply
      compile:
        concurrent_batches: 1  # 从 2 降至 1
    ```
+
+### 智谱 API 严重限流（TPM 配额低）
+
+**症状**: 智谱 API 频繁触发限流（30s→60s→120s→240s→300s 指数退避），处理速度显著低于其他模型
+
+**解决方案**（推荐组合使用）:
+
+1. **降低 Worker 批次大小**:
+   ```yaml
+   pipeline:
+     digest:
+       workers:
+         - name: zhipu
+           batch_size: 1  # 从 2 降至 1
+   ```
+
+2. **增加 Provider 请求间隔**:
+   ```yaml
+   pipeline:
+     digest:
+       provider_rate_limit_delays:
+         zhipu: 60.0  # 从 15 增至 60 秒
+   ```
+
+3. **降低 LLM 权重**（方案 C）:
+   ```yaml
+   llm:
+     weights:
+       qwen: 0.45
+       minimax: 0.5
+       zhipu: 0.05  # 仅 5%，减少智谱调用频率
+   ```
+
+4. **使用加权轮询策略**:
+   ```yaml
+   pipeline:
+     digest:
+       provider_rotation: weighted  # 使用加权策略而非 round_robin
+   ```
+
+**推荐配置组合**（智谱限流场景）:
+
+```yaml
+pipeline:
+  digest:
+    worker_mode: pool
+    workers:
+      - name: qwen
+        provider: qwen
+        batch_size: 2
+      - name: zhipu
+        provider: zhipu
+        batch_size: 1       # 降至 1
+      - name: minimax
+        provider: minimax
+        batch_size: 2
+
+    provider_rate_limit_delays:
+      zhipu: 60.0           # 60 秒间隔
+      qwen: 3.0
+      minimax: 3.0
+
+    provider_rotation: weighted  # 加权轮询
+
+llm:
+  weights:
+    qwen: 0.45
+    minimax: 0.5
+    zhipu: 0.05           # 仅 5% 请求
+```
 
 ---
 

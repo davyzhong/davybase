@@ -382,6 +382,14 @@ class DigestOrchestrator:
                 f"max_batch={dynamic_batch_config.get('max_batch_size', 10)})"
             )
 
+        # Provider 级别请求间隔配置（秒）
+        # 用于解决不同 API 的限流问题，特别是智谱 TPM 配额较低的场景
+        self.provider_rate_limit_delays = pipeline_config.get('provider_rate_limit_delays', {
+            "zhipu": 15.0,      # 智谱 TPM 配额低，需要更长间隔
+            "qwen": 3.0,
+            "minimax": 3.0,
+        })
+
         # 初始化 LLM 提供商
         self.providers = {
             "qwen": QwenProvider(config.get_llm_api_key("qwen")),
@@ -870,6 +878,10 @@ class DigestOrchestrator:
         """Worker 协程：从队列领取任务，处理完立即领取下一批（支持动态批次）"""
         logger.info(f"[Worker {name}] 启动，初始批次大小={batch_size}")
 
+        # 获取当前 provider 的请求间隔
+        provider_name = name  # worker name 与 provider name 一致
+        rate_limit_delay = self.provider_rate_limit_delays.get(provider_name, 3.0)
+
         while True:
             # 获取动态批次大小（如果启用）
             current_batch_size = self.batch_scheduler.get_batch_size(name) if self.batch_scheduler else batch_size
@@ -933,6 +945,10 @@ class DigestOrchestrator:
                     logger.error(
                         f"[Worker {name}] ✗ {note_id}: {result.get('error', '未知错误')}"
                     )
+
+                # 每请求后等待，避免触发 API 限流
+                if rate_limit_delay > 0:
+                    await asyncio.sleep(rate_limit_delay)
 
             # 本批次处理完成，通知调度器调整批次
             duration = time.time() - start_time
