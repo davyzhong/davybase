@@ -47,20 +47,21 @@ pipeline:
     workers:                    # Worker 池模式配置（每个 Worker 独立领取任务）
       - name: qwen
         provider: qwen
-        batch_size: 2           # 每次处理 2 条
+        batch_size: 3           # 每次处理 3 条（从 2 增至 3，配额充足）
       # - name: zhipu           # 智谱 TPM 配额过低，禁用 digest 阶段
       #   provider: zhipu
       #   batch_size: 1
       - name: minimax
         provider: minimax
-        batch_size: 2           # 每次处理 2 条
+        batch_size: 4           # 每次处理 4 条（从 2 增至 4，配额充足）
 
     # Provider 级别请求间隔配置（秒）
     # 智谱已禁用 digest，仅保留配置用于 compile 阶段
+    # 千问配额充足，降低延迟以提速
     provider_rate_limit_delays:
       zhipu: 120.0     # 智谱 TPM 配额极低，compile 阶段使用
-      qwen: 3.0        # 千问配额充足，3 秒足够
-      minimax: 3.0     # MiniMax 配额充足，3 秒足够
+      qwen: 1.0        # 千问配额充足，降至 1 秒提速
+      minimax: 1.0     # MiniMax 配额充足，降至 1 秒提速
 
     # 动态批次配置（根据处理速度自动调整）
     dynamic_batch:
