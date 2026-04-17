@@ -1,9 +1,35 @@
 # Davybase 使用指南
 
-**版本**: v4.2  
-**更新日期**: 2026-04-14
+**版本**: v5.0  
+**更新日期**: 2026-04-17
 
 详细的 Davybase 使用说明和常见工作流。
+
+---
+
+## 📌 重要：首次使用必读
+
+Davybase 采用 **"一次性全量 + 每日增量"** 工作流：
+
+| 步骤 | 操作 | 频率 | 说明 |
+|------|------|------|------|
+| **第 1 步** | 全量同步 | **仅一次** | 首次使用时处理所有历史笔记 |
+| **第 2 步** | 增量同步 | **每日自动** | 仅处理新增/修改的笔记 |
+
+**新手指引**: 详细说明见 [INITIALIZATION.md](INITIALIZATION.md)
+
+### 快速开始流程
+
+```bash
+# 第 1 步：首次全量同步（仅执行一次）
+python main.py pipeline --full --resume
+
+# 第 2 步：设置每日自动增量同步（crontab）
+crontab -e
+# 添加：0 6 * * * cd /path/to/davybase && python main.py incremental
+```
+
+---
 
 ## 快速开始
 
@@ -58,7 +84,29 @@ python main.py compile --kb-dir processed/ --concurrent-batches 2
 
 ## 常见工作流
 
-### v4.2 并发管线工作流（推荐）
+### v5.0 两条 Skills 工作流（推荐）
+
+**前半段：get 笔记整理助手（每日自动）**:
+
+```bash
+# 每日增量同步（建议设置定时任务自动执行）
+python main.py incremental
+
+# 或者使用 Skills
+/getnote-organizer
+```
+
+**后半段：Wiki 知识创作助手（按需执行）**：
+
+```bash
+# 当某个主题积累 10+ 条笔记时执行
+python main.py compile --kb-dir processed/ --concurrent-batches 2
+
+# 或者使用 Skills
+/wiki-creator
+```
+
+### v4.2 并发管线工作流
 
 **全量管道**:
 ```bash
@@ -284,21 +332,25 @@ grep ERROR logs/davybase.log
 
 ## 最佳实践
 
-### 1. 首次同步
+### 1. 首次同步（仅执行一次）
 
-建议先运行小批量测试配置：
+**重要**: 首次使用 Davybase 时，先执行全量同步建立基线。
 
 ```bash
-# 先处理 5 条笔记测试
-python main.py full-sync --batch-size 5 --dry-run
-
-# 确认无误后全量运行
-python main.py full-sync --provider zhipu
+# 全量同步（一次性）
+python main.py pipeline --full --resume
 ```
 
-### 2. 日常同步
+### 2. 日常同步（每日自动）
 
-设置定时任务（如 cron）：
+**设置定时任务**:
+
+```bash
+# crontab 配置（每天早上 6 点自动执行）
+0 6 * * * cd /Users/qiming/workspace/davybase && python main.py incremental >> logs/incremental.log 2>&1
+```
+
+**监控同步状态**:
 
 ```bash
 # 每天早上 6 点自动同步
@@ -330,14 +382,36 @@ compiler:
 ### Q: 全量同步和增量同步有什么区别？
 
 **A:** 
-- **全量同步**：处理所有笔记，适合首次使用或完全重建
-- **增量同步**：仅处理新增/修改的笔记，适合日常使用
+- **全量同步**：处理所有笔记，**仅首次使用时执行一次**
+- **增量同步**：仅处理新增/修改的笔记，**每日自动执行**
+
+**工作流**:
+```
+第 1 次使用 → python main.py pipeline --full --resume（一次性）
+每日使用  → python main.py incremental（定时任务自动执行）
+```
+
+### Q: 如何知道是增量同步还是全量同步？
+
+**A**: 查看命令行输出或日志：
+- 增量同步会显示"跳过 XXX 条已处理笔记"
+- 全量同步会处理所有笔记
+
+运行 `python main.py status` 查看上次同步类型：
+```bash
+python main.py status
+# 输出示例：
+# 上次同步：2026-04-17T06:00:00 (incremental, qwen)
+#                                    ↑ 这里显示同步类型
+```
+
+### Q: 我不小心执行了两次全量同步，会有问题吗？
+
+**A**: 不会有数据问题，系统使用 `content_hash` 比对，重复内容不会被重复处理。但会浪费时间和 API 配额。
 
 ### Q: 如何知道同步是否完成？
 
-**A:** 
-- 查看命令行输出的统计信息
-- 检查 `wiki/` 目录的文件数量
+**A**:
 - 运行 `python main.py status` 查看同步状态
 
 ### Q: 同步过程中可以中断吗？

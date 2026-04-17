@@ -84,6 +84,7 @@ def compile_only(provider: str, no_cli: bool):
 def ingest(batch_size: int, concurrency: int, resume: bool, source: str):
     """并发抽取笔记（v4.0）"""
     config = Config()
+    logger = setup_logging(f"{config.logs_path}/ingest.log")
     state_dir = Path(config.vault_path) / ".davybase" / "progress"
     orchestrator = IngestOrchestrator(state_dir, config)
     result = asyncio.run(orchestrator.run(
@@ -131,6 +132,96 @@ def digest(inbox_dir: str, worker_mode: str, workers: str, concurrency: int, pro
     if 'by_provider' in result:
         for provider, stats in result['by_provider'].items():
             click.echo(f"  {provider}: ✓{stats['success']} ✗{stats['failed']}")
+
+
+@cli.command()
+@click.option("--inbox-dir", default="raw/notes/_inbox/", help="待处理笔记目录（默认：raw/notes/_inbox/）")
+@click.option("--provider", default="minimax", help="LLM 提供商（minimax/qwen）")
+@click.option("--apply", is_flag=True, help="实际执行移动操作（不加则预览模式）")
+@click.option("--limit", default=10, type=int, help="限制处理数量（默认 10 条）")
+@click.option("--worker-mode", default="pool", help="Worker 模式（默认：pool）")
+@click.option("--force", is_flag=True, help="跳过全量同步检查，强制执行增量")
+def incremental(inbox_dir: str, provider: str, apply: bool, limit: int, worker_mode: str, force: bool):
+    """增量处理新增笔记（自动跳过已处理的笔记）
+
+    ⚠️ 重要：首次使用前，请先执行全量同步（python main.py pipeline --full --resume）
+
+    示例:
+        # 预览模式（不实际移动）
+        python main.py incremental --limit 10
+
+        # 实际执行
+        python main.py incremental --apply --limit 10
+
+        # 跳过全量同步检查（高级用户）
+        python main.py incremental --force
+    """
+    import json
+
+    config = Config()
+    logger = setup_logging(f"{config.logs_path}/incremental.log")
+
+    # 检查是否已完成首次全量同步
+    if not force:
+        sync_db = Path(config.data_path) / "sync.db"
+        if not sync_db.exists():
+            click.echo("❌ 错误：未检测到同步状态数据库（sync.db）")
+            click.echo("")
+            click.echo("=" * 60)
+            click.echo("📌 首次使用必读：")
+            click.echo("=" * 60)
+            click.echo("增量同步仅适用于已完成首次全量同步的场景。")
+            click.echo("")
+            click.echo("如果你是首次使用 Davybase，请先执行全量同步：")
+            click.echo("")
+            click.echo("  python main.py pipeline --full --resume")
+            click.echo("")
+            click.echo("或者，如果你确认要跳过全量同步（不推荐），可以使用 --force 参数：")
+            click.echo("")
+            click.echo("  python main.py incremental --force")
+            click.echo("")
+            click.echo("详细说明请参阅：docs/INITIALIZATION.md")
+            click.echo("=" * 60)
+            return
+
+    state_dir = Path(config.vault_path) / ".davybase" / "progress"
+    orchestrator = DigestOrchestrator(state_dir, config)
+
+    # 增量模式配置
+    orchestrator.worker_mode = worker_mode
+
+    # 根据 provider 配置 Worker
+    if provider == "minimax":
+        orchestrator.worker_configs = [
+            {"name": "minimax", "provider": "minimax", "batch_size": 4}
+        ]
+    elif provider == "qwen":
+        orchestrator.worker_configs = [
+            {"name": "qwen", "provider": "qwen", "batch_size": 3}
+        ]
+    else:
+        click.echo(f"警告：不支持的 provider '{provider}'，使用 MiniMax")
+        orchestrator.worker_configs = [
+            {"name": "minimax", "provider": "minimax", "batch_size": 4}
+        ]
+
+    click.echo(f"开始增量处理：目录={inbox_dir}, 限制={limit} 条，Provider={provider}")
+    click.echo("=" * 60)
+
+    result = asyncio.run(orchestrator.run(
+        inbox_dir=inbox_dir,
+        apply=apply,
+        limit=limit,
+        provider_rotation="single",
+        concurrency=1
+    ))
+
+    # 显示详细结果
+    click.echo("=" * 60)
+    click.echo(f"增量处理完成：处理 {result['total_processed']} 条，移动 {result['total_moved']} 条，失败 {result['failed']} 条")
+    if 'by_provider' in result:
+        for provider_name, stats in result['by_provider'].items():
+            click.echo(f"  {provider_name}: ✓{stats['success']} ✗{stats['failed']}")
 
 
 @cli.command()
@@ -214,6 +305,23 @@ def status():
     click.echo(f"已同步笔记：{s['total_notes']}")
     click.echo(f"Wiki 条目：{s['wiki_entries']}")
     click.echo(f"失败：{s['failed_count']}")
+
+    # 首次使用提示
+    if not s['last_run']:
+        click.echo("")
+        click.echo("=" * 60)
+        click.echo("📌 首次使用提示：")
+        click.echo("=" * 60)
+        click.echo("你还没有执行过同步。请按以下步骤操作：")
+        click.echo("")
+        click.echo("  1. 首次全量同步（仅执行一次）：")
+        click.echo("     python main.py pipeline --full --resume")
+        click.echo("")
+        click.echo("  2. 设置每日自动增量同步：")
+        click.echo("     python main.py incremental")
+        click.echo("")
+        click.echo("详细说明请参阅：docs/INITIALIZATION.md")
+        click.echo("=" * 60)
 
 
 @cli.command()
