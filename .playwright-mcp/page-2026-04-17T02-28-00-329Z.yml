@@ -1,0 +1,386 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - banner:
+          - img
+          - heading [level=1]: 开放平台
+          - generic:
+            - button: 登录 / 注册
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - tablist:
+                  - tab:
+                    - generic: 📊 概览
+                  - tab:
+                    - generic: 📦 应用管理
+                  - tab:
+                    - generic: 🔑 API Key
+                  - tab [selected]:
+                    - generic: 📖 使用文档
+                  - tab:
+                    - generic: 🤖 AI 技能
+            - tabpanel:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - heading [level=2]: 使用文档
+                        - paragraph: Get 笔记 API 提供了丰富的接口，让你可以通过编程方式管理笔记，以下文档将帮助你快速上手
+                  - generic:
+                    - generic:
+                      - heading [level=3]: 集成工具
+                    - generic:
+                      - article:
+                        - generic:
+                          - generic:
+                            - img
+                          - heading [level=4]: OpenClaw Skill
+                        - paragraph: 在 OpenClaw 中通过对话管理笔记，支持一键安装，可直接执行创建、查询、整理。
+                        - link:
+                          - /url: https://github.com/iswalle/getnote-openclaw
+                          - button:
+                            - img
+                            - text: 查看 GitHub
+                      - article:
+                        - generic:
+                          - generic:
+                            - img
+                          - heading [level=4]: Get笔记 CLI
+                        - paragraph: 命令行工具，支持在终端中快速保存、搜索笔记，可与 Shell 脚本、自动化工作流集成。
+                        - link:
+                          - /url: https://github.com/iswalle/getnote-cli
+                          - button:
+                            - img
+                            - text: 查看 GitHub
+                      - article:
+                        - generic:
+                          - generic:
+                            - img
+                          - heading [level=4]: MCP Server
+                        - paragraph: Model Context Protocol 服务端，支持 Claude 等模型直接调用 Get笔记 API。
+                        - link:
+                          - /url: https://github.com/iswalle/getnote-mcp
+                          - button:
+                            - img
+                            - text: 查看 GitHub
+                  - generic:
+                    - heading [level=3]: API 文档
+                    - generic:
+                      - button:
+                        - generic: 🚀 概述与认证
+                        - paragraph: Base URL、认证头、快速开始与配额规则。
+                      - button:
+                        - generic: ⚠️ 配额与错误
+                        - paragraph: 错误码、限流 reason、配额查询与限流响应。
+                      - button:
+                        - generic: 📝 笔记接口
+                        - paragraph: 列表、详情、创建与删除笔记。
+                      - button:
+                        - generic: 📚 知识库
+                        - paragraph: 知识库列表与创建知识库接口。
+                      - button:
+                        - generic: 🏷️ 标签管理
+                        - paragraph: 添加和删除笔记标签。
+                      - button:
+                        - generic: 🔍 语义召回
+                        - paragraph: 基于语义搜索笔记和知识库内容。
+                  - generic:
+                    - heading [level=3]: API 接口示例
+                    - generic:
+                      - heading [level=4]: 配额查询
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/rate-limit/quota
+                                - generic: 查询调用配额
+                              - img
+                    - generic:
+                      - heading [level=4]: 笔记相关
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/note/list
+                                - generic: 获取笔记列表
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/note/detail
+                                - generic: 获取笔记详情
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/note/save
+                                - generic: 创建笔记
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/note/update
+                                - generic: 更新笔记
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/note/delete
+                                - generic: 删除笔记
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/note/task/progress
+                                - generic: 查询任务进度
+                              - img
+                    - generic:
+                      - heading [level=4]: 媒体相关
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/image/upload_token
+                                - generic: 获取图片上传凭证
+                              - img
+                    - generic:
+                      - heading [level=4]: 知识库相关
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/knowledge/list
+                                - generic: 获取知识库列表
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/knowledge/create
+                                - generic: 创建知识库
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/knowledge/notes
+                                - generic: 知识库笔记列表
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/knowledge/note/batch-add
+                                - generic: 添加笔记到知识库
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/knowledge/subscribe/list
+                                - generic: 订阅知识库列表
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/knowledge/note/remove
+                                - generic: 从知识库移除笔记
+                              - img
+                    - generic:
+                      - heading [level=4]: 标签相关
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/note/tags/add
+                                - generic: 添加标签
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/note/tags/delete
+                                - generic: 删除标签
+                              - img
+                    - generic:
+                      - heading [level=4]: 博主订阅
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/knowledge/bloggers
+                                - generic: 博主列表
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/knowledge/blogger/contents
+                                - generic: 博主内容列表
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/knowledge/blogger/content/detail
+                                - generic: 博主内容详情
+                              - img
+                    - generic:
+                      - heading [level=4]: 直播订阅
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/knowledge/lives
+                                - generic: 已完成直播列表
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: GET
+                                - generic:
+                                  - generic: /resource/knowledge/live/detail
+                                - generic: 直播详情
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/knowledge/live/follow
+                                - generic: 关注直播
+                              - img
+                    - generic:
+                      - heading [level=4]: 语义召回
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/recall
+                                - generic: 全局笔记召回
+                              - img
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/recall/knowledge
+                                - generic: 知识库内容召回
+                              - img
+                    - generic:
+                      - heading [level=4]: 笔记分享
+                      - generic:
+                        - generic:
+                          - heading [level=3]:
+                            - button:
+                              - generic:
+                                - generic: POST
+                                - generic:
+                                  - generic: /resource/note/sharing
+                                - generic: 创建笔记分享链接
+                              - img
+        - contentinfo:
+          - generic:
+            - generic: © 2026 北京思维造物信息科技股份有限公司 · 京ICP备15037205号-10
+            - generic:
+              - link:
+                - /url: /privacy/useragreement
+                - text: 用户协议
+              - link:
+                - /url: /privacy/policy
+                - text: 隐私政策
+              - link:
+                - /url: mailto:support@biji.com
+                - text: 联系我们
+      - region "Notifications alt+T":
+        - list
+  - dialog [ref=e2]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]: 验证码登录
+        - generic [ref=e10]:
+          - generic [ref=e12] [cursor=pointer]:
+            - text: "+86"
+            - img [ref=e14]:
+              - img [ref=e15]
+          - textbox "请输入手机号" [active] [ref=e17]
+        - generic [ref=e19]:
+          - textbox "请输入验证码" [ref=e20]
+          - generic [ref=e21] [cursor=pointer]: 获取验证码
+      - generic [ref=e22]:
+        - button "登录" [ref=e24] [cursor=pointer]
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - text: 同意并愿意遵守Get笔记
+            - link "《用户协议》" [ref=e28] [cursor=pointer]:
+              - /url: /privacy/useragreement
+            - text: 和
+            - link "《隐私政策》" [ref=e29] [cursor=pointer]:
+              - /url: /privacy/policy
+          - generic [ref=e30]: 未注册手机号将自动注册
+    - button "Close" [ref=e31] [cursor=pointer]:
+      - img [ref=e32]
+      - generic [ref=e35]: Close

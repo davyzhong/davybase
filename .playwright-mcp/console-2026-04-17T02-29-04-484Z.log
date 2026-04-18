@@ -1,0 +1,15 @@
+[     193ms] [ERROR] Yjs was already imported. This breaks constructor checks and will lead to issues! - https://github.com/yjs/yjs/issues/438 @ https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:1
+[     477ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://openapi.biji.com/open/api/v1/console/developer/profile:0
+[     477ms] [ERROR] AxiosError: Request failed with status code 401
+    at Re (https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:2:2268446)
+    at XMLHttpRequest.g (https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:2:2272977)
+    at ft.request (https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:2:2281687)
+    at async Proxy.fetchProfile (https://imgcdn.umiwi.com/fe-static/prod/home/js/3889.47c01cfe.chunk.mjs:1:13915)
+    at async https://imgcdn.umiwi.com/fe-static/prod/home/js/3889.47c01cfe.chunk.mjs:1:93786 @ https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:1
+[     563ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://openapi.biji.com/open/api/v1/console/developer/profile:0
+[     563ms] [ERROR] AxiosError: Request failed with status code 401
+    at Re (https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:2:2268446)
+    at XMLHttpRequest.g (https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:2:2272977)
+    at ft.request (https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:2:2281687)
+    at async Proxy.fetchProfile (https://imgcdn.umiwi.com/fe-static/prod/home/js/3889.47c01cfe.chunk.mjs:1:13915)
+    at async https://imgcdn.umiwi.com/fe-static/prod/home/js/3889.47c01cfe.chunk.mjs:1:112411 @ https://imgcdn.umiwi.com/fe-static/prod/home/js/chunk-vendors.0253a4bd.mjs:1
