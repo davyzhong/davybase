@@ -169,8 +169,13 @@ class IngestOrchestrator:
         concurrency = concurrency if concurrency is not None else self.default_concurrency
         resume = resume if resume is not None else self.default_resume
 
+        # 增量模式：降低限流延迟（请求量小，配额充足）
+        rate_limit_delay = self.default_rate_limit_delay
+        if incremental:
+            rate_limit_delay = 2.0  # 增量模式只需 2 秒延迟
+
         start_time = time.time()
-        logger.info(f"开始并发抽取 (batch_size={batch_size}, concurrency={concurrency}, rate_limit_delay={self.default_rate_limit_delay}s, incremental={incremental})")
+        logger.info(f"开始并发抽取 (batch_size={batch_size}, concurrency={concurrency}, rate_limit_delay={rate_limit_delay}s, incremental={incremental})")
 
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         inbox_dir = self.raw_dir / "notes" / "_inbox"
@@ -196,7 +201,7 @@ class IngestOrchestrator:
         total_extracted = 0
         failed = 0
 
-        async with GetNoteClient(self.api_key, self.client_id, rate_limit_delay=self.default_rate_limit_delay) as client:
+        async with GetNoteClient(self.api_key, self.client_id, rate_limit_delay=rate_limit_delay) as client:
             # 获取知识库笔记
             kbs = await client.list_knowledge_bases()
             logger.info(f"发现 {len(kbs)} 个知识库")
