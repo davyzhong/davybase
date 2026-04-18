@@ -1,5 +1,7 @@
 # Skill: 每日增量同步 get 笔记
 
+> **注意**: 这是旧版通用 Skill 文档，新版已迁移至 `skills/01-collect.md`
+>
 > 从 get 笔记 API 增量抓取上次同步后的新笔记，保存为本地 Markdown 文件。
 >
 > **适用平台**: Claude Code、OpenClaw、Hermes 等任何支持执行 shell 命令的 AI 工具。
@@ -99,6 +101,11 @@ cd /Users/qiming/workspace/davybase && python main.py ingest --incremental --bat
 │     只获取基准线之后的新笔记                                         │
 │                                                                     │
 │  4. 逐条获取新笔记详情 → 保存为 Markdown → 更新基准线               │
+│                                                                     │
+│  【基准线逻辑】                                                      │
+│  - 基准线 = 最新抓取笔记的 created_at（API 返回的笔记创建时间）        │
+│  - 如果抓到 0 条，基准线不更新（避免遗漏中间笔记）                     │
+│  - 增量同步只抓取 created_at > baseline 的笔记                        │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```

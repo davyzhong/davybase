@@ -83,21 +83,24 @@ class SyncState:
         row = cursor.fetchone()
         return row["last_sync_type"] if row else None
 
-    def update_sync_timestamp(self, sync_type: str, notes_extracted: int):
+    def update_sync_timestamp(self, sync_type: str, notes_extracted: int, latest_created_at: str = None):
         """
         更新同步时间戳（同步完成后调用）
 
         Args:
             sync_type: 同步类型 - 'full' 或 'incremental'
             notes_extracted: 本次抽取的笔记数量
+            latest_created_at: 本次抽取笔记中最新的 created_at（增量模式下作为新基准线）
         """
         cursor = self.conn.cursor()
-        now = datetime.now().isoformat()
+        # 增量模式：用最新笔记的 created_at 作为基准线，确保不遗漏
+        # 全量模式：用当前时间
+        now = latest_created_at if latest_created_at else datetime.now().isoformat()
         cursor.execute("""
             UPDATE incremental_sync_state
             SET last_sync_at = ?, last_sync_type = ?, notes_extracted = ?, updated_at = ?
             WHERE id = 1
-        """, (now, sync_type, notes_extracted, now))
+        """, (now, sync_type, notes_extracted, datetime.now().isoformat()))
         self.conn.commit()
         logger = logging.getLogger("davybase.sync_state")
         logger.info(f"已更新增量同步基准线：{now} ({sync_type}, {notes_extracted} 条)")

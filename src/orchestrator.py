@@ -49,6 +49,18 @@ from src.sync_state import SyncState  # 新增：导入 SyncState
 logger = logging.getLogger("davybase.orchestrator")
 
 
+def _max_timestamp(a: Optional[str], b: str) -> str:
+    """返回两个时间戳中较大的那个"""
+    if a is None:
+        return b
+    try:
+        dt_a = datetime.fromisoformat(a[:26])
+        dt_b = datetime.fromisoformat(b[:26])
+        return a if dt_a >= dt_b else b
+    except (ValueError, TypeError):
+        return b
+
+
 # =============================================================================
 # 工具函数
 # =============================================================================
@@ -99,11 +111,11 @@ class IngestOrchestrator:
             logger.warning(f"读取上次同步时间戳失败：{e}")
             return None
 
-    def _update_sync_timestamp(self, sync_type: str, notes_extracted: int):
+    def _update_sync_timestamp(self, sync_type: str, notes_extracted: int, latest_created_at: str = None):
         """更新同步时间戳"""
         try:
             sync_state = self._get_sync_state()
-            sync_state.update_sync_timestamp(sync_type, notes_extracted)
+            sync_state.update_sync_timestamp(sync_type, notes_extracted, latest_created_at)
         except Exception as e:
             logger.warning(f"更新同步时间戳失败：{e}")
 
@@ -200,6 +212,7 @@ class IngestOrchestrator:
 
         total_extracted = 0
         failed = 0
+        latest_created_at = None  # 跟踪本次抽取笔记中最新的 created_at
 
         async with GetNoteClient(self.api_key, self.client_id, rate_limit_delay=rate_limit_delay) as client:
             # 获取知识库笔记
@@ -213,6 +226,8 @@ class IngestOrchestrator:
                 )
                 total_extracted += kb_result["extracted"]
                 failed += kb_result["failed"]
+                if kb_result.get("latest_created_at"):
+                    latest_created_at = _max_timestamp(latest_created_at, kb_result["latest_created_at"])
 
             # 抽取散落笔记
             inbox_result = await self._extract_inbox_notes(
@@ -221,13 +236,17 @@ class IngestOrchestrator:
             )
             total_extracted += inbox_result["extracted"]
             failed += inbox_result["failed"]
+            if inbox_result.get("latest_created_at"):
+                latest_created_at = _max_timestamp(latest_created_at, inbox_result["latest_created_at"])
 
         duration = time.time() - start_time
         logger.info(f"抽取完成：{total_extracted} 条，失败 {failed} 条，耗时 {duration:.1f}秒")
 
         # 更新同步时间戳（增量同步基准线）
+        # 增量模式下：有新笔记时用最新 created_at，无新笔记时不更新基准线
         sync_type = "incremental" if incremental else "full"
-        self._update_sync_timestamp(sync_type, total_extracted)
+        if total_extracted > 0 or not incremental:
+            self._update_sync_timestamp(sync_type, total_extracted, latest_created_at)
 
         return {
             "total": total_extracted,
@@ -304,7 +323,14 @@ class IngestOrchestrator:
         total_extracted = sum(r.get("extracted", 0) for r in results if isinstance(r, dict))
         failed = sum(r.get("failed", 0) for r in results if isinstance(r, dict))
 
-        return {"extracted": total_extracted, "failed": failed}
+        # 跟踪最新 created_at
+        latest_created_at = None
+        for n in all_notes:
+            ca = n.get("created_at")
+            if ca:
+                latest_created_at = _max_timestamp(latest_created_at, ca)
+
+        return {"extracted": total_extracted, "failed": failed, "latest_created_at": latest_created_at}
 
     async def _extract_inbox_notes(
         self,
@@ -352,7 +378,14 @@ class IngestOrchestrator:
         total_extracted = sum(r.get("extracted", 0) for r in results if isinstance(r, dict))
         failed = sum(r.get("failed", 0) for r in results if isinstance(r, dict))
 
-        return {"extracted": total_extracted, "failed": failed}
+        # 跟踪最新 created_at
+        latest_created_at = None
+        for n in all_notes:
+            ca = n.get("created_at")
+            if ca:
+                latest_created_at = _max_timestamp(latest_created_at, ca)
+
+        return {"extracted": total_extracted, "failed": failed, "latest_created_at": latest_created_at}
 
     async def _extract_batch(
         self,

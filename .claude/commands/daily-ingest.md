@@ -1,6 +1,8 @@
 # 每日增量同步 get 笔记
 
-从 get 笔记 API 增量抓取上次同步后的新笔记，保存为本地 Markdown 文件。
+> **注意**: 这是旧版 Skill 文档，新版已迁移至 `skills/01-collect.md`
+>
+> 从 get 笔记 API 增量抓取上次同步后的新笔记，保存为本地 Markdown 文件。
 
 **适用平台**: Claude Code (`/daily-ingest`)、OpenClaw、Hermes 等任何支持执行 shell 命令的 AI 工具。
 
