@@ -34,11 +34,17 @@ pipeline:
   # 阶段 1: 摄取（Ingest）- 从 get 笔记 API 抽取原始笔记
   ingest:
     enabled: true
-    batch_size: 10          # 单批次最大抽取数量
-    concurrency: 2          # 并发请求数（推荐 1-3，过高会触发 API 限流）
-    rate_limit_delay: 2.0   # API 请求间隔（秒），触发限流时增加此值
+    batch_size: 2           # 单批次最大抽取数量（降低）
+    concurrency: 1          # 并发请求数（单线程）
+    rate_limit_delay: 60.0  # API 请求间隔（秒）增加到 60 秒
     page_delay: 3.0         # 分页请求间隔（秒）
     resume: true            # 默认断点续传
+
+    # get 笔记 API 限流配置
+    # 注意：get 笔记有每日 20,000 次调用限制
+    # 单次 ingest 操作建议控制在 500 次调用以内（2% 的每日配额）
+    daily_quota: 20000      # 每日最大 API 调用次数
+    safety_margin: 0.8      # 安全边际（80% = 使用配额的 80% 后停止）
 
   # 阶段 2: 消化（Digest）- 生成标题、分类、移动
   digest:

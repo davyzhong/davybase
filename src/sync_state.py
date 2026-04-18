@@ -1,6 +1,7 @@
 # src/sync_state.py
 import os
 import sqlite3
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -50,7 +51,61 @@ class SyncState:
                 created_at DATETIME,
                 updated_at DATETIME
             );
+
+            -- 增量同步基准线（记录上次成功同步的时间戳）
+            CREATE TABLE IF NOT EXISTS incremental_sync_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),  -- 单行表
+                last_sync_at DATETIME,
+                last_sync_type TEXT,
+                notes_extracted INTEGER,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- 初始化单行记录
+            INSERT OR IGNORE INTO incremental_sync_state (id, last_sync_at, last_sync_type, notes_extracted)
+            VALUES (1, NULL, NULL, 0);
         """)
+        self.conn.commit()
+
+    # ========== 增量同步基准线管理 ==========
+
+    def get_last_sync_timestamp(self) -> Optional[str]:
+        """获取上次同步的时间戳（用于增量同步基准线）"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT last_sync_at FROM incremental_sync_state WHERE id = 1")
+        row = cursor.fetchone()
+        return row["last_sync_at"] if row else None
+
+    def get_last_sync_type(self) -> Optional[str]:
+        """获取上次同步类型（full/incremental）"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT last_sync_type FROM incremental_sync_state WHERE id = 1")
+        row = cursor.fetchone()
+        return row["last_sync_type"] if row else None
+
+    def update_sync_timestamp(self, sync_type: str, notes_extracted: int):
+        """
+        更新同步时间戳（同步完成后调用）
+
+        Args:
+            sync_type: 同步类型 - 'full' 或 'incremental'
+            notes_extracted: 本次抽取的笔记数量
+        """
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            UPDATE incremental_sync_state
+            SET last_sync_at = ?, last_sync_type = ?, notes_extracted = ?, updated_at = ?
+            WHERE id = 1
+        """, (now, sync_type, notes_extracted, now))
+        self.conn.commit()
+        logger = logging.getLogger("davybase.sync_state")
+        logger.info(f"已更新增量同步基准线：{now} ({sync_type}, {notes_extracted} 条)")
+
+    def clear_sync_timestamp(self):
+        """清除同步时间戳（用于重置全量同步）"""
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE incremental_sync_state SET last_sync_at = NULL, last_sync_type = NULL WHERE id = 1")
         self.conn.commit()
 
     def insert_note(self, note_id: str, note_type: str, kb: str, raw_path: str, content_hash: str):

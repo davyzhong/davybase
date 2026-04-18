@@ -37,16 +37,20 @@ class GetNoteClient:
         await self._client.aclose()
 
     async def _get(self, path: str, params: dict = None) -> dict:
-        # 速率限制：请求间隔可配置（默认 2 秒）
+        # 速率限制：请求间隔可配置（默认 5 秒）
         await asyncio.sleep(self.rate_limit_delay)
 
-        # 429 限流重试策略
+        # 429 限流重试策略：指数退避
         max_retries = 5
+        base_wait = 10  # 基础等待时间（秒）
         for attempt in range(max_retries):
             try:
                 response = await self._client.get(path, params=params)
                 if response.status_code == 429:
-                    retry_after = int(response.headers.get("Retry-After", 120))
+                    # 优先使用 Retry-After 头，否则使用指数退避
+                    retry_after = int(response.headers.get("Retry-After", 0))
+                    if retry_after == 0:
+                        retry_after = base_wait * (2 ** attempt)  # 指数退避：10s, 20s, 40s...
                     logger.warning(f"触发限流，等待 {retry_after} 秒（第 {attempt+1}/{max_retries} 次重试）")
                     await asyncio.sleep(retry_after)
                     continue
@@ -54,7 +58,9 @@ class GetNoteClient:
                 return response.json()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < max_retries - 1:
-                    retry_after = int(e.response.headers.get("Retry-After", 120))
+                    retry_after = int(e.response.headers.get("Retry-After", 0))
+                    if retry_after == 0:
+                        retry_after = base_wait * (2 ** attempt)
                     logger.warning(f"触发限流，等待 {retry_after} 秒（第 {attempt+1}/{max_retries} 次重试）")
                     await asyncio.sleep(retry_after)
                 else:
@@ -87,18 +93,48 @@ class GetNoteClient:
         result = await self._get("/open/api/v1/resource/note/detail", {"id": note_id})
         return result.get("data", {}).get("note", {})
 
-    async def list_all_notes(self) -> list:
-        """获取全部笔记列表（包括不在知识库中的散落笔记）"""
+    async def list_all_notes(self, baseline_dt: str = None) -> list:
+        """获取笔记列表（包括不在知识库中的散落笔记）
+
+        Args:
+            baseline_dt: 增量同步基准线时间戳（如 '2026-04-17 18:39:49'）。
+                         设置后使用早停策略：遇到 created_at <= baseline 的笔记即停止分页，
+                         只返回基准线之后的新笔记。
+        """
+        from datetime import datetime
+
         all_notes = []
         next_cursor = 0
 
         while True:
-            # 降低限流风险：增加请求间隔
             await asyncio.sleep(2.0)
 
             result = await self._get("/open/api/v1/resource/note/list", {"since_id": next_cursor})
             notes = result.get("data", {}).get("notes", [])
-            all_notes.extend(notes)
+
+            # 增量早停：遇到比基准线旧的笔记就停止
+            if baseline_dt:
+                new_in_page = []
+                stopped = False
+                for note in notes:
+                    created_at = note.get("created_at", "")
+                    try:
+                        note_dt = datetime.strptime(created_at[:19], "%Y-%m-%d %H:%M:%S")
+                        base = datetime.strptime(baseline_dt[:19], "%Y-%m-%d %H:%M:%S")
+                        if note_dt > base:
+                            new_in_page.append(note)
+                        else:
+                            # 遇到比基准线旧的笔记，停止分页
+                            stopped = True
+                            break
+                    except (ValueError, TypeError):
+                        pass
+                all_notes.extend(new_in_page)
+                if stopped or not new_in_page:
+                    logger.info(f"增量早停：已获取 {len(all_notes)} 条新笔记")
+                    break
+            else:
+                all_notes.extend(notes)
 
             has_more = result.get("data", {}).get("has_more", False)
             if not has_more:

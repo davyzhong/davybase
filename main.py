@@ -81,17 +81,35 @@ def compile_only(provider: str, no_cli: bool):
 @click.option("--concurrency", default=None, type=int, help="并发请求数（默认从配置文件读取）")
 @click.option("--resume", is_flag=True, default=None, help="断点续传（默认从配置文件读取）")
 @click.option("--source", default="getnote", help="数据来源")
-def ingest(batch_size: int, concurrency: int, resume: bool, source: str):
-    """并发抽取笔记（v4.0）"""
+@click.option("--incremental", is_flag=True, help="增量同步模式（仅抽取上次同步后的新笔记）")
+def ingest(batch_size: int, concurrency: int, resume: bool, source: str, incremental: bool):
+    """
+    并发抽取笔记（v4.0）
+
+    增量同步模式：
+    - 首次使用：直接运行 python main.py ingest（全量同步）
+    - 每日使用：python main.py ingest --incremental（仅抽取新笔记）
+    """
     config = Config()
     logger = setup_logging(f"{config.logs_path}/ingest.log")
     state_dir = Path(config.vault_path) / ".davybase" / "progress"
     orchestrator = IngestOrchestrator(state_dir, config)
+
+    # 显示增量同步提示
+    if incremental:
+        last_sync = orchestrator._get_last_sync_timestamp()
+        if last_sync:
+            click.echo(f"增量同步模式：仅抽取 {last_sync} 之后的新笔记")
+        else:
+            click.echo("警告：未找到上次同步时间戳，将执行全量同步")
+            incremental = False
+
     result = asyncio.run(orchestrator.run(
         batch_size=batch_size,
         concurrency=concurrency,
         resume=resume,
-        source=source
+        source=source,
+        incremental=incremental
     ))
     click.echo(f"抽取完成：{result['total']} 条，失败 {result['failed']} 条，耗时 {result['duration']}秒")
 
@@ -245,15 +263,25 @@ def compile(kb_dir: str, threshold: int, concurrent_batches: int, provider_rotat
 
 @cli.command()
 @click.option("--full", is_flag=True, help="执行全量管道")
+@click.option("--incremental", is_flag=True, help="增量管道（仅抽取上次同步后的新笔记）")
 @click.option("--resume", is_flag=True, default=None, help="断点续传")
 @click.option("--ingest-batch-size", default=None, type=int, help="摄取批次大小")
 @click.option("--ingest-concurrency", default=None, type=int, help="摄取并发数")
 @click.option("--digest-concurrency", default=None, type=int, help="消化并发数")
 @click.option("--compile-batch-size", default=None, type=int, help="编译批次大小")
 @click.option("--compile-concurrent-batches", default=None, type=int, help="编译并发批次数")
-def pipeline(full: bool, resume: bool, ingest_batch_size: int, ingest_concurrency: int,
+def pipeline(full: bool, incremental: bool, resume: bool, ingest_batch_size: int, ingest_concurrency: int,
              digest_concurrency: int, compile_batch_size: int, compile_concurrent_batches: int):
-    """全量管道（一键执行所有阶段）"""
+    """
+    全量管道（一键执行所有阶段）
+
+    使用示例:
+        # 全量管道（首次使用）
+        python main.py pipeline --full
+
+        # 增量管道（每日使用）
+        python main.py pipeline --incremental
+    """
     config = Config()
     state_dir = Path(config.vault_path) / ".davybase" / "progress"
 
@@ -261,10 +289,20 @@ def pipeline(full: bool, resume: bool, ingest_batch_size: int, ingest_concurrenc
         # 阶段 1: 摄取
         click.echo("=== 阶段 1: 摄取 ===")
         ingest_orch = IngestOrchestrator(state_dir, config)
+
+        # 显示增量同步提示
+        if incremental:
+            last_sync = ingest_orch._get_last_sync_timestamp()
+            if last_sync:
+                click.echo(f"增量同步模式：仅抽取 {last_sync} 之后的新笔记")
+            else:
+                click.echo("警告：未找到上次同步时间戳，将执行全量同步")
+
         ingest_result = await ingest_orch.run(
             batch_size=ingest_batch_size,
             concurrency=ingest_concurrency,
-            resume=resume
+            resume=resume,
+            incremental=incremental  # 传递增量模式参数
         )
         click.echo(f"摄取：{ingest_result['total']} 条")
 

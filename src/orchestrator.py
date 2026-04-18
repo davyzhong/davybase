@@ -44,6 +44,7 @@ except ImportError:
 from src.llm_providers.qwen import QwenProvider
 from src.writer import Writer
 from src.dynamic_batch import DynamicBatchScheduler
+from src.sync_state import SyncState  # 新增：导入 SyncState
 
 logger = logging.getLogger("davybase.orchestrator")
 
@@ -71,6 +72,10 @@ class IngestOrchestrator:
         self.raw_dir = Path(config.raw_path) if hasattr(config, 'raw_path') else Path(config.vault_path) / "raw"
         self.api_key, self.client_id = config.get_getnote_credentials()
 
+        # 增量同步状态管理（使用 sync_state.db）
+        self.sync_state_path = Path(config.vault_path) / ".davybase" / "sync_state.db"
+        self._sync_state = None  # 懒加载
+
         # 从配置文件读取管线参数
         pipeline_config = getattr(config, 'raw_config', {}).get('pipeline', {}).get('ingest', {})
         self.default_batch_size = pipeline_config.get('batch_size', 10)
@@ -79,12 +84,72 @@ class IngestOrchestrator:
         self.default_page_delay = pipeline_config.get('page_delay', 3.0)
         self.default_resume = pipeline_config.get('resume', True)
 
+    def _get_sync_state(self) -> SyncState:
+        """懒加载 SyncState"""
+        if self._sync_state is None:
+            self._sync_state = SyncState(str(self.sync_state_path))
+        return self._sync_state
+
+    def _get_last_sync_timestamp(self) -> Optional[str]:
+        """获取上次同步的时间戳"""
+        try:
+            sync_state = self._get_sync_state()
+            return sync_state.get_last_sync_timestamp()
+        except Exception as e:
+            logger.warning(f"读取上次同步时间戳失败：{e}")
+            return None
+
+    def _update_sync_timestamp(self, sync_type: str, notes_extracted: int):
+        """更新同步时间戳"""
+        try:
+            sync_state = self._get_sync_state()
+            sync_state.update_sync_timestamp(sync_type, notes_extracted)
+        except Exception as e:
+            logger.warning(f"更新同步时间戳失败：{e}")
+
+    def _is_note_newer_than(self, note: dict, timestamp: str) -> bool:
+        """
+        检查笔记是否比给定时间戳新
+
+        Args:
+            note: 笔记数据字典（包含 created_at 字段）
+            timestamp: ISO 格式时间戳（如 2026-04-17T06:00:00）
+
+        Returns:
+            True 如果笔记比时间戳新，否则 False
+        """
+        try:
+            # 笔记的 created_at 格式：2026-04-15 13:03:47
+            note_created = note.get("created_at", "")
+            if not note_created:
+                return False
+
+            # 转换为 datetime 对象进行比较
+            # 笔记时间格式
+            note_dt = datetime.strptime(note_created, "%Y-%m-%d %H:%M:%S")
+
+            # 时间戳格式（ISO 或 标准格式）
+            try:
+                ts_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                # 移除时区信息进行比较
+                ts_dt = ts_dt.replace(tzinfo=None)
+            except ValueError:
+                # 尝试标准格式
+                ts_dt = datetime.strptime(timestamp[:19], "%Y-%m-%d %H:%M:%S")
+
+            # 比较：笔记创建时间 > 上次同步时间
+            return note_dt > ts_dt
+        except Exception as e:
+            logger.warning(f"比较笔记时间失败：{note.get('note_id', 'unknown')} - {e}")
+            return False  # 出错的笔记默认不抽取
+
     async def run(
         self,
         batch_size: int = None,
         concurrency: int = None,
         resume: bool = None,
-        source: str = "getnote"
+        source: str = "getnote",
+        incremental: bool = False  # 新增：增量同步模式
     ) -> Dict[str, Any]:
         """
         执行并发抽取
@@ -94,6 +159,7 @@ class IngestOrchestrator:
             concurrency: 并发请求数（默认从配置文件读取）
             resume: 是否从中断处恢复（默认从配置文件读取）
             source: 数据来源 getnote|local
+            incremental: 是否增量同步（仅抽取上次同步后的新笔记）
 
         Returns:
             抽取结果字典
@@ -104,7 +170,7 @@ class IngestOrchestrator:
         resume = resume if resume is not None else self.default_resume
 
         start_time = time.time()
-        logger.info(f"开始并发抽取 (batch_size={batch_size}, concurrency={concurrency}, rate_limit_delay={self.default_rate_limit_delay}s)")
+        logger.info(f"开始并发抽取 (batch_size={batch_size}, concurrency={concurrency}, rate_limit_delay={self.default_rate_limit_delay}s, incremental={incremental})")
 
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         inbox_dir = self.raw_dir / "notes" / "_inbox"
@@ -117,6 +183,16 @@ class IngestOrchestrator:
         extracted_ids = self.state.get_extracted_ids()
         logger.info(f"已抽取 {len(extracted_ids)} 条笔记")
 
+        # 增量同步：获取上次同步时间戳
+        last_sync_at = None
+        if incremental:
+            last_sync_at = self._get_last_sync_timestamp()
+            if last_sync_at:
+                logger.info(f"增量同步基准线：{last_sync_at}")
+            else:
+                logger.warning("未找到上次同步时间戳，将执行全量同步")
+                incremental = False
+
         total_extracted = 0
         failed = 0
 
@@ -127,20 +203,26 @@ class IngestOrchestrator:
 
             for kb in kbs:
                 kb_result = await self._extract_knowledge_base(
-                    client, kb, batch_size, concurrency, extracted_ids
+                    client, kb, batch_size, concurrency, extracted_ids,
+                    last_sync_at=last_sync_at if incremental else None  # 增量模式传递时间戳
                 )
                 total_extracted += kb_result["extracted"]
                 failed += kb_result["failed"]
 
             # 抽取散落笔记
             inbox_result = await self._extract_inbox_notes(
-                client, batch_size, concurrency, extracted_ids
+                client, batch_size, concurrency, extracted_ids,
+                last_sync_at=last_sync_at if incremental else None  # 增量模式传递时间戳
             )
             total_extracted += inbox_result["extracted"]
             failed += inbox_result["failed"]
 
         duration = time.time() - start_time
         logger.info(f"抽取完成：{total_extracted} 条，失败 {failed} 条，耗时 {duration:.1f}秒")
+
+        # 更新同步时间戳（增量同步基准线）
+        sync_type = "incremental" if incremental else "full"
+        self._update_sync_timestamp(sync_type, total_extracted)
 
         return {
             "total": total_extracted,
@@ -154,7 +236,8 @@ class IngestOrchestrator:
         kb: dict,
         batch_size: int,
         concurrency: int,
-        extracted_ids: set
+        extracted_ids: set,
+        last_sync_at: Optional[str] = None  # 新增：增量同步时间戳
     ) -> Dict[str, int]:
         """抽取单个知识库"""
         kb_name = kb["name"]
@@ -163,21 +246,40 @@ class IngestOrchestrator:
 
         logger.info(f"抽取知识库 \"{kb_name}\"")
 
-        # 获取知识库所有笔记
+        # 获取知识库笔记（增量模式下早停）
         all_notes = []
         page = 1
         has_more = True
+        early_stopped = False
         while has_more:
             notes, has_more = await client.list_knowledge_notes(kb["topic_id"], page)
-            all_notes.extend(notes)
+
+            if last_sync_at:
+                # 增量早停：该页如果有比基准线旧的笔记，只取新笔记并停止
+                new_in_page = []
+                for n in notes:
+                    if self._is_note_newer_than(n, last_sync_at):
+                        new_in_page.append(n)
+                    else:
+                        early_stopped = True
+                        break
+                all_notes.extend(new_in_page)
+                if early_stopped or not new_in_page:
+                    break
+            else:
+                all_notes.extend(notes)
+
             page += 1
             if has_more:
-                # 分页延迟，避免限流
                 await asyncio.sleep(self.default_page_delay)
 
         # 过滤已抽取的
         pending_notes = [n for n in all_notes if n["note_id"] not in extracted_ids]
-        logger.info(f"  共 {len(all_notes)} 条，待抽取 {len(pending_notes)} 条")
+
+        if last_sync_at:
+            logger.info(f"  增量获取 {len(all_notes)} 条，未抽取 {len(pending_notes)} 条（基准线：{last_sync_at}）")
+        else:
+            logger.info(f"  共 {len(all_notes)} 条，待抽取 {len(pending_notes)} 条")
 
         if not pending_notes:
             return {"extracted": 0, "failed": 0}
@@ -204,17 +306,24 @@ class IngestOrchestrator:
         client: GetNoteClient,
         batch_size: int,
         concurrency: int,
-        extracted_ids: set
+        extracted_ids: set,
+        last_sync_at: Optional[str] = None
     ) -> Dict[str, int]:
         """抽取散落笔记"""
         inbox_dir = self.raw_dir / "notes" / "_inbox"
         inbox_dir.mkdir(parents=True, exist_ok=True)
         logger.info("抽取散落笔记")
 
-        # 获取所有笔记
-        all_notes = await client.list_all_notes()
+        # 增量模式：传入 baseline 启用早停，只获取基准线之后的笔记
+        all_notes = await client.list_all_notes(baseline_dt=last_sync_at)
+
+        # 过滤已抽取的
         pending_notes = [n for n in all_notes if n["note_id"] not in extracted_ids]
-        logger.info(f"  全部笔记 {len(all_notes)} 条，待抽取 {len(pending_notes)} 条")
+
+        if last_sync_at:
+            logger.info(f"  增量获取 {len(all_notes)} 条，未抽取 {len(pending_notes)} 条（基准线：{last_sync_at}）")
+        else:
+            logger.info(f"  全部笔记 {len(all_notes)} 条，待抽取 {len(pending_notes)} 条")
 
         if not pending_notes:
             return {"extracted": 0, "failed": 0}
@@ -222,12 +331,18 @@ class IngestOrchestrator:
         # 分批次
         batches = [pending_notes[i:i+batch_size] for i in range(0, len(pending_notes), batch_size)]
 
-        # 并发抽取
+        # 创建信号量（使用 concurrency=1 单线程）
         semaphore = asyncio.Semaphore(concurrency)
-        results = await asyncio.gather(*[
-            self._extract_batch(client, batch, inbox_dir, "_inbox", semaphore)
-            for batch in batches
-        ], return_exceptions=True)
+
+        # 并发抽取（顺序执行批次，批次内并发）
+        results = []
+        for i, batch in enumerate(batches):
+            logger.info(f"  批次 {i+1}/{len(batches)}")
+            batch_result = await self._extract_batch(client, batch, inbox_dir, "_inbox", semaphore)
+            results.append(batch_result)
+            # 批次间延迟，避免限流
+            if i < len(batches) - 1:
+                await asyncio.sleep(self.default_rate_limit_delay)
 
         total_extracted = sum(r.get("extracted", 0) for r in results if isinstance(r, dict))
         failed = sum(r.get("failed", 0) for r in results if isinstance(r, dict))
@@ -242,15 +357,16 @@ class IngestOrchestrator:
         kb_name: str,
         semaphore: asyncio.Semaphore
     ) -> Dict[str, int]:
-        """并发抽取一批笔记"""
-        async with semaphore:
-            tasks = [self._extract_single_note(client, note, kb_dir, kb_name) for note in notes_batch]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            extracted = sum(1 for r in results if r is True)
-            failed = len(results) - extracted
-
-            return {"extracted": extracted, "failed": failed}
+        """顺序抽取一批笔记（单线程）"""
+        extracted = 0
+        failed = 0
+        for note in notes_batch:
+            result = await self._extract_single_note(client, note, kb_dir, kb_name)
+            if result:
+                extracted += 1
+            else:
+                failed += 1
+        return {"extracted": extracted, "failed": failed}
 
     async def _extract_single_note(
         self,
